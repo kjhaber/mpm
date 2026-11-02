@@ -193,7 +193,12 @@ func (s *Store) write(path string, r *Repo, password string) error {
 	if err := os.MkdirAll(s.Root, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(s.Root, ".mpm-tmp-*")
+	// Write through a symlinked repository file (e.g. managed by stow) instead of replacing the link.
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".mpm-tmp-*")
 	if err != nil {
 		return err
 	}
@@ -216,7 +221,7 @@ func (s *Store) write(path string, r *Repo, password string) error {
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return err
 	}
-	return syncDir(s.Root)
+	return syncDir(dir)
 }
 
 // syncDir fsyncs a directory so a rename into it survives a crash.

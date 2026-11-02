@@ -356,3 +356,41 @@ func TestOpenTreatsUndecodablePlaintextAsBadPassword(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestSavePreservesSymlinkedRepoFile(t *testing.T) {
+	s := newStore(t)
+	mustCreateOpen(t, s, "web")
+	link := filepath.Join(s.Root, "web.enc")
+	targetDir := t.TempDir()
+	target := filepath.Join(targetDir, "web.enc")
+	if err := os.Rename(link, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	h, err := s.Open("web", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Repo.AddField("user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink was replaced: %v %v", fi, err)
+	}
+	h2, err := s.Open("web", "pw")
+	if err != nil || len(h2.Repo.Fields) != 1 {
+		t.Fatalf("saved data not visible through the link: %v %v", h2, err)
+	}
+	if got, _ := os.ReadFile(target); !strings.Contains(string(got), "user") {
+		t.Fatalf("target not updated: %q", got)
+	}
+	entries, _ := os.ReadDir(targetDir)
+	if len(entries) != 1 {
+		t.Fatalf("stray temp files next to target: %v", entries)
+	}
+}
