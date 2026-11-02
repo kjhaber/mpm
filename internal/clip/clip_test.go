@@ -58,31 +58,12 @@ func TestDetectFallsBackToOSC52(t *testing.T) {
 	if buf.String() != "\x1b]52;c;aGk=\x07" {
 		t.Fatalf("got %q", buf.String())
 	}
-	if _, err := c.Read(); err == nil {
-		t.Fatal("OSC52 cannot read; expected error")
-	}
-}
-
-type fake struct{ val string }
-
-func (f *fake) Write(s string) error  { f.val = s; return nil }
-func (f *fake) Read() (string, error) { return f.val, nil }
-
-func TestClearIfUnchanged(t *testing.T) {
-	f := &fake{val: "secret"}
-	if err := ClearIfUnchanged(f, "secret"); err != nil || f.val != "" {
-		t.Fatalf("should clear: %q %v", f.val, err)
-	}
-	f.val = "other"
-	if err := ClearIfUnchanged(f, "secret"); err != nil || f.val != "other" {
-		t.Fatalf("should leave alone: %q %v", f.val, err)
-	}
 }
 
 func TestClipboardChildDoesNotInheritPassword(t *testing.T) {
 	dump := filepath.Join(t.TempDir(), "env.txt")
 	t.Setenv("MPM_PASSWORD", "hunter2")
-	c := &cmdClipboard{writeCmd: []string{"sh", "-c", "env > " + dump}, readCmd: []string{"true"}}
+	c := &cmdClipboard{writeCmd: []string{"sh", "-c", "env > " + dump}}
 	if err := c.Write("x"); err != nil {
 		t.Fatal(err)
 	}
@@ -92,11 +73,11 @@ func TestClipboardChildDoesNotInheritPassword(t *testing.T) {
 	}
 }
 
-func TestSupportsClear(t *testing.T) {
-	if SupportsClear(Detect(lookPathOf("pbcopy", "pbpaste"), "darwin", nil)) != true {
-		t.Fatal("pbcopy clipboards can be cleared")
+func TestDetectNeedsOnlyTheCopyTool(t *testing.T) {
+	if got := toolOf(Detect(lookPathOf("pbcopy"), "darwin", nil)); got != "pbcopy" {
+		t.Fatalf("darwin: got %s", got)
 	}
-	if SupportsClear(Detect(lookPathOf(), "linux", &bytes.Buffer{})) {
-		t.Fatal("OSC52 clipboards cannot be read back, so cannot be auto-cleared")
+	if got := toolOf(Detect(lookPathOf("wl-copy"), "linux", nil)); got != "wl-copy" {
+		t.Fatalf("linux: got %s", got)
 	}
 }

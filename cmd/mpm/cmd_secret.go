@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kjhaber/mpm/internal/cli"
-	"github.com/kjhaber/mpm/internal/clip"
 	"github.com/kjhaber/mpm/internal/vault"
 )
 
@@ -64,7 +63,6 @@ func (a *app) promptValues(r *vault.Repo) (map[string]string, error) {
 func (a *app) secretCmd() *cobra.Command {
 	secret := &cobra.Command{Use: "secret", Short: "Manage secrets"}
 	var repo, name, field, value, format string
-	var noClear bool
 
 	common := func(c *cobra.Command, needName bool) *cobra.Command {
 		c.Args = cobra.NoArgs
@@ -181,22 +179,12 @@ func (a *app) secretCmd() *cobra.Command {
 			if err := a.clip.Write(s); err != nil {
 				return err
 			}
-			if !noClear && !clip.SupportsClear(a.clip) {
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Copied to clipboard (this clipboard type cannot be cleared automatically).")
-				return nil
-			}
-			if !noClear {
-				if err := a.spawnClear(s, clipboardClearAfter); err != nil {
-					return fmt.Errorf("copied, but could not schedule clipboard clear: %w", err)
-				}
-			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Copied to clipboard.")
 			return nil
 		},
 	}, true)
 	cp.Flags().StringVar(&field, "field", "", "field name (default: all fields)")
 	cp.Flags().StringVar(&format, "format", "", "output format: text or json")
-	cp.Flags().BoolVar(&noClear, "no-clear", false, "do not clear the clipboard after 30 seconds")
 
 	del := common(&cobra.Command{
 		Use: "delete", Aliases: []string{"rm"}, Short: "Delete a secret",

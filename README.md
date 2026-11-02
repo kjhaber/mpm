@@ -90,7 +90,7 @@ mpm secret list --repo <repo-name>
 mpm secret create --repo <repo-name> --secret <secret-name> [--value <field:value,field:value,...>]
 mpm secret update --repo <repo-name> --secret <secret-name> [--value <field:value,field:value,...>]
 mpm secret show --repo <repo-name> --secret <secret-name> [--field <field-name>] [--format text|json]
-mpm secret copy --repo <repo-name> --secret <secret-name> [--field <field-name>] [--format text|json] [--no-clear]
+mpm secret copy --repo <repo-name> --secret <secret-name> [--field <field-name>] [--format text|json]
 mpm secret delete --repo <repo-name> --secret <secret-name>
 ```
 
@@ -100,7 +100,7 @@ Secret names may contain any characters except control characters (newlines, esc
 
 In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash (a backslash before any other character is kept as written).  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  Values are validated against each field's `required` and `pattern` attributes.
 
-`secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  The clipboard is cleared after 30 seconds, but only if it still holds the copied value.  `--no-clear` disables that.  The OSC52 fallback can't be read back, so it can't be cleared automatically; mpm says so when copying.  OSC52 is written to the terminal, never to redirected stdout.
+`secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  mpm never clears or reads the clipboard (clearing risks wiping something else you copied meanwhile), so a copied secret stays there until you replace it.  OSC52 is written to the terminal, never to redirected stdout.
 
 ## TUI mode
 Running `mpm tui` runs mpm in a TUI mode.

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -33,14 +32,12 @@ func (fakeCrypter) Decrypt(pw string, in []byte) ([]byte, error) {
 
 type fakeClip struct{ val string }
 
-func (f *fakeClip) Write(s string) error  { f.val = s; return nil }
-func (f *fakeClip) Read() (string, error) { return f.val, nil }
+func (f *fakeClip) Write(s string) error { f.val = s; return nil }
 
 type env struct {
 	t         *testing.T
 	store     *vault.Store
 	clip      *fakeClip
-	spawned   []string
 	statePath string
 	editor    func(path string) error // simulates $EDITOR
 	deps      Deps
@@ -52,8 +49,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{t: t, clip: &fakeClip{}, statePath: filepath.Join(dir, "state.json"),
 		store: &vault.Store{Root: filepath.Join(dir, "repos"), Crypter: fakeCrypter{}}}
 	e.deps = Deps{
-		Store: e.store, Clip: e.clip, StatePath: e.statePath, ClearAfter: 30 * time.Second,
-		SpawnClear: func(v string, _ time.Duration) error { e.spawned = append(e.spawned, v); return nil },
+		Store: e.store, Clip: e.clip, StatePath: e.statePath,
 		RunEditor: func(path string, done func(error) tea.Msg) tea.Cmd {
 			return func() tea.Msg {
 				if e.editor == nil {
@@ -230,10 +226,13 @@ func TestCopyFieldValue(t *testing.T) {
 	e := newEnv(t)
 	m := openFields(t, e)
 	press(m, k("c")) // first field is user
-	if e.clip.val != "me" || len(e.spawned) != 1 || e.spawned[0] != "me" {
-		t.Fatalf("clip=%q spawned=%v", e.clip.val, e.spawned)
+	if e.clip.val != "me" {
+		t.Fatalf("clip=%q", e.clip.val)
 	}
-	mustContain(t, m, "Copied")
+	mustContain(t, m, "Copied user to clipboard")
+	if strings.Contains(m.View(), "clear") {
+		t.Fatalf("no clearing is promised or scheduled:\n%s", m.View())
+	}
 }
 
 func TestShowRevealsThenHides(t *testing.T) {
@@ -557,15 +556,15 @@ func TestCleanupIsSafeAgainstConcurrentEdit(t *testing.T) {
 	m.Cleanup()
 }
 
-func TestCopyWithUnclearableClipboardWarns(t *testing.T) {
+func TestCopyWithOSC52ClipboardDoesNotMentionClearing(t *testing.T) {
 	e := newEnv(t)
 	var buf bytes.Buffer
 	e.deps.Clip = clip.Detect(func(string) (string, error) { return "", errors.New("none") }, "linux", &buf)
 	m := openFields(t, e)
 	press(m, k("c"))
-	mustContain(t, m, "cannot be cleared automatically")
-	if len(e.spawned) != 0 {
-		t.Fatalf("no clear helper should be spawned: %v", e.spawned)
+	mustContain(t, m, "Copied user to clipboard")
+	if strings.Contains(m.View(), "clear") {
+		t.Fatalf("got:\n%s", m.View())
 	}
 }
 

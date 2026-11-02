@@ -31,8 +31,6 @@ type Deps struct {
 	Clip        clip.Clipboard
 	EnvPassword string // MPM_PASSWORD; when set, no password prompts for existing repos
 	StatePath   string
-	ClearAfter  time.Duration
-	SpawnClear  func(value string, after time.Duration) error
 	// RunEditor opens path in $EDITOR and later delivers done(err) as a message.
 	RunEditor func(path string, done func(error) tea.Msg) tea.Cmd
 }
