@@ -21,7 +21,8 @@ var syncFile = func(f *os.File) error { return f.Sync() }
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._ -]*$`)
 
-func validateName(name string) error {
+// ValidateName reports whether name is usable as a repository name.
+func ValidateName(name string) error {
 	if !nameRE.MatchString(name) {
 		return fmt.Errorf("invalid name %q (letters, digits, space, . _ - ; must start with a letter or digit)", name)
 	}
@@ -45,7 +46,7 @@ type Handle struct {
 }
 
 func (s *Store) path(name string) (string, error) {
-	if err := validateName(name); err != nil {
+	if err := ValidateName(name); err != nil {
 		return "", fmt.Errorf("repository name: %w", err)
 	}
 	return filepath.Join(s.Root, name+".enc"), nil

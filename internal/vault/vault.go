@@ -48,7 +48,7 @@ func (r *Repo) field(name string) (*Field, error) {
 
 // AddField adds an optional field with the default pattern.
 func (r *Repo) AddField(name string) error {
-	if err := validateName(name); err != nil {
+	if err := ValidateName(name); err != nil {
 		return fmt.Errorf("field name: %w", err)
 	}
 	if _, err := r.field(name); err == nil {

@@ -295,3 +295,21 @@ func TestCopyWithUnclearableClipboardSaysSo(t *testing.T) {
 		t.Fatalf("OSC52 not written: %q", buf.String())
 	}
 }
+
+func TestInvalidRepoNameFailsBeforePrompting(t *testing.T) {
+	e := newTestEnv(t)
+	delete(e.vars, "MPM_PASSWORD") // no env password and no queued prompts: any prompt fails with "unexpected prompt"
+	for _, args := range [][]string{
+		{"repo", "create", "--repo", "../evil"},
+		{"repo", "copy", "--repo", "../evil", "--from", "web"},
+		{"repo", "copy", "--repo", "ok", "--from", "../evil"},
+		{"repo", "delete", "--repo", "../evil"},
+		{"repo", "show", "--repo", "../evil"},
+		{"secret", "list", "--repo", "../evil"},
+	} {
+		err := e.mustFail(args...)
+		if !strings.Contains(err.Error(), "invalid name") {
+			t.Errorf("mpm %s: got %v", strings.Join(args, " "), err)
+		}
+	}
+}
