@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -15,6 +16,7 @@ var (
 	ErrExists              = errors.New("already exists")
 	ErrNotFound            = errors.New("not found")
 	ErrRequiredWithSecrets = errors.New("cannot make a field required while the repository contains secrets")
+	ErrPatternViolated     = errors.New("existing secrets do not match the new pattern")
 )
 
 const defaultPattern = ".+"
@@ -93,14 +95,33 @@ func (r *Repo) SetAttrib(field, attrib, value string) error {
 		}
 		f.Required = value == "true"
 	case "pattern":
-		if _, err := regexp.Compile(value); err != nil {
+		re, err := regexp.Compile("(?s)^(?:" + value + ")$")
+		if err != nil {
 			return fmt.Errorf("invalid pattern: %w", err)
+		}
+		if bad := r.violating(field, re); len(bad) > 0 {
+			return fmt.Errorf("%w: %s (fix or delete them first)", ErrPatternViolated, strings.Join(bad, ", "))
 		}
 		f.Pattern = value
 	default:
 		return fmt.Errorf("unknown attribute %q (valid: required, pattern)", attrib)
 	}
 	return nil
+}
+
+// violating lists (sorted, display-safe, capped) the secrets whose value for field does not match re.
+func (r *Repo) violating(field string, re *regexp.Regexp) []string {
+	var bad []string
+	for name, vals := range r.Secrets {
+		if v := vals[field]; v != "" && !re.MatchString(v) {
+			bad = append(bad, SafeName(name))
+		}
+	}
+	sort.Strings(bad)
+	if len(bad) > 5 {
+		bad = append(bad[:5], fmt.Sprintf("and %d more", len(bad)-5))
+	}
+	return bad
 }
 
 // GetAttrib returns a field attribute's effective value.

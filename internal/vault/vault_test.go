@@ -394,3 +394,31 @@ func TestSavePreservesSymlinkedRepoFile(t *testing.T) {
 		t.Fatalf("stray temp files next to target: %v", entries)
 	}
 }
+
+func TestSetPatternRejectedWhenExistingSecretsViolateIt(t *testing.T) {
+	r := &Repo{}
+	if err := r.AddField("pin"); err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string]string{"bank": "1234", "gym": "abcd", "club": "9"} {
+		if err := r.SetSecret(name, map[string]string{"pin": v}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := r.SetAttrib("pin", "pattern", "[0-9]+")
+	if !errors.Is(err, ErrPatternViolated) {
+		t.Fatalf("got %v", err)
+	}
+	if !strings.Contains(err.Error(), "gym") || strings.Contains(err.Error(), "abcd") {
+		t.Fatalf("error should name the offending secret but not echo values: %v", err)
+	}
+	if got, _ := r.GetAttrib("pin", "pattern"); got != ".+" {
+		t.Fatalf("pattern changed despite the error: %q", got)
+	}
+	if err := r.SetSecret("gym", map[string]string{"pin": "5678"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetAttrib("pin", "pattern", "[0-9]+"); err != nil {
+		t.Fatalf("all secrets match now: %v", err)
+	}
+}

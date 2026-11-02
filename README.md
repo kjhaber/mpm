@@ -61,7 +61,7 @@ mpm repo copy --repo <repo-name> --from <original-repo-name> [--include-secrets]
 `repo create` prompts for the new password twice.  `repo copy` prompts for the original repository's password and then a new password for the copy.
 
 ### Fields
-Secret repositories include a set of fields to be tracked per secret.  For example, a website password repository might have fields for username and password, while a credit card repository might have fields for name-on-card, card-number, expire-month, expire-year, and cvv.  Fields can be set as required or optional, and may have validation rules applied to help ensure values are set correctly.  If a repository contains any secrets, no new required fields can be added to the repository.
+Secret repositories include a set of fields to be tracked per secret.  For example, a website password repository might have fields for username and password, while a credit card repository might have fields for name-on-card, card-number, expire-month, expire-year, and cvv.  Fields can be set as required or optional, and may have validation rules applied to help ensure values are set correctly.  If a repository contains any secrets, no new required fields can be added to the repository.  Likewise a `pattern` change is refused while any existing secret value would not match it; the error names those secrets (never their values) so they can be fixed first.
 
 ```
 mpm field list --repo <repo-name>
