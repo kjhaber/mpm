@@ -4,7 +4,7 @@ BUILD_DIR := build
 GOLANGCI_LINT_VERSION := v2.11.3
 GOLANGCI_LINT := $(BUILD_DIR)/golangci-lint
 
-.PHONY: fmt lint test cover build completions clean all
+.PHONY: fmt lint test cover cover-report build completions clean all
 
 # Default target runs all quality checks then builds
 all: fmt lint cover build
@@ -28,10 +28,14 @@ TEST_ENV := MPM_ROOT= MPM_FORMAT= MPM_REPO= MPM_PASSWORD=
 test:
 	@$(TEST_ENV) go test ./...
 
-# Run tests with coverage and print report
+# Run tests with coverage and print the total
 cover:
 	@mkdir -p $(BUILD_DIR)
 	@$(TEST_ENV) go test -race ./... -coverprofile=$(BUILD_DIR)/coverage.out
+	@go tool cover -func=$(BUILD_DIR)/coverage.out | tail -1
+
+# Per-function coverage listing
+cover-report: cover
 	@go tool cover -func=$(BUILD_DIR)/coverage.out
 
 # Build the binary (inject version from nearest git tag, fallback to "dev")
