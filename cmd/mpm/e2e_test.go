@@ -360,3 +360,35 @@ func TestSecretListNeutralisesControlCharactersInLegacyNames(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestEditorCommandDisablesVimHistoryFiles(t *testing.T) {
+	for _, ed := range []string{"vim", "/usr/local/bin/nvim", "vim -u NONE"} {
+		cmd, err := editorCommand(func(k string) string {
+			if k == "EDITOR" {
+				return ed
+			}
+			return ""
+		}, "/tmp/x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := " " + strings.Join(cmd.Args, " ") + " "
+		for _, want := range []string{" -n ", " -i NONE ", "noundofile", "nobackup", "nowritebackup"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("%s: missing %q in %q", ed, want, joined)
+			}
+		}
+		if cmd.Args[len(cmd.Args)-1] != "/tmp/x" {
+			t.Errorf("%s: path must be last: %q", ed, cmd.Args)
+		}
+	}
+	cmd, _ := editorCommand(func(k string) string {
+		if k == "EDITOR" {
+			return "code --wait"
+		}
+		return ""
+	}, "/tmp/x")
+	if want := []string{"code", "--wait", "/tmp/x"}; !reflect.DeepEqual(cmd.Args, want) {
+		t.Fatalf("other editors are left alone: %q", cmd.Args)
+	}
+}

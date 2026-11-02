@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -100,7 +101,18 @@ func editorCommand(env func(string) string, path string) (*exec.Cmd, error) {
 	if err != nil || len(parts) == 0 {
 		return nil, fmt.Errorf("cannot parse editor %q (check $VISUAL / $EDITOR)", editor)
 	}
-	cmd := exec.Command(parts[0], append(parts[1:], path)...)
+	args := append(privateEditorArgs(parts[0]), parts[1:]...)
+	cmd := exec.Command(parts[0], append(args, path)...)
 	cmd.Env = childenv.Env()
 	return cmd, nil
+}
+
+// privateEditorArgs returns flags that stop vim and nvim writing the decrypted
+// secret to swap, backup, undo or viminfo files. Other editors get none.
+func privateEditorArgs(editor string) []string {
+	switch filepath.Base(editor) {
+	case "vim", "nvim":
+		return []string{"-n", "-i", "NONE", "-c", "set noswapfile noundofile nobackup nowritebackup"}
+	}
+	return nil
 }
