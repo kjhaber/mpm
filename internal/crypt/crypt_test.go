@@ -42,6 +42,34 @@ func TestCorruptCiphertextReturnsErrBadPassword(t *testing.T) {
 	}
 }
 
+func TestInvalidPasswordsRejected(t *testing.T) {
+	c := NewOpenSSL()
+	for name, pw := range map[string]string{
+		"newline":  "ab\ncd",
+		"too long": strings.Repeat("x", 1024),
+		"huge":     strings.Repeat("x", 200000),
+	} {
+		if _, err := c.Encrypt(pw, []byte("data")); !errors.Is(err, ErrInvalidPassword) {
+			t.Errorf("%s: encrypt got %v", name, err)
+		}
+		if _, err := c.Decrypt(pw, []byte("data")); !errors.Is(err, ErrInvalidPassword) {
+			t.Errorf("%s: decrypt got %v", name, err)
+		}
+	}
+}
+
+func TestMaxLengthPasswordRoundTrips(t *testing.T) {
+	c := NewOpenSSL()
+	pw := strings.Repeat("x", 1023)
+	enc, err := c.Encrypt(pw, []byte("data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Decrypt(pw[:1022]+"y", enc); !errors.Is(err, ErrBadPassword) {
+		t.Fatalf("last byte must matter, got %v", err)
+	}
+}
+
 var plainArgs = []string{"enc", "-aes-256-cbc", "-a", "-salt", "-pbkdf2", "-iter", "100000", "-pass", "pass:pw"}
 
 func TestVicryptCompatible(t *testing.T) {

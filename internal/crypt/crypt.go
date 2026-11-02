@@ -8,12 +8,26 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/kjhaber/mpm/internal/childenv"
 )
 
 // ErrBadPassword is returned when decryption fails (wrong password or corrupt data).
 var ErrBadPassword = errors.New("wrong password or corrupt data")
+
+// ErrInvalidPassword is returned for passwords openssl would silently
+// truncate (it reads one line of under 1024 bytes from the password fd).
+var ErrInvalidPassword = errors.New("password must be under 1024 bytes and contain no newline")
+
+const maxPasswordLen = 1023
+
+func checkPassword(password string) error {
+	if len(password) > maxPasswordLen || strings.ContainsAny(password, "\r\n") {
+		return ErrInvalidPassword
+	}
+	return nil
+}
 
 // Crypter encrypts and decrypts byte slices with a password.
 type Crypter interface {
@@ -46,6 +60,9 @@ func (opensslCrypter) Decrypt(password string, ciphertext []byte) ([]byte, error
 }
 
 func run(password string, in []byte, decrypt bool) ([]byte, error) {
+	if err := checkPassword(password); err != nil {
+		return nil, err
+	}
 	path, err := exec.LookPath("openssl")
 	if err != nil {
 		return nil, errors.New("openssl not found on PATH (brew install openssl)")
@@ -72,7 +89,7 @@ func run(password string, in []byte, decrypt bool) ([]byte, error) {
 		_ = pw.Close()
 		return nil, err
 	}
-	// The password is small enough to fit in the pipe buffer, so this won't block.
+	// checkPassword keeps the password far below the pipe buffer, so this won't block.
 	_, werr := pw.WriteString(password + "\n")
 	_ = pw.Close()
 	if err := cmd.Wait(); err != nil {
