@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -42,19 +43,31 @@ func renderSecret(r *vault.Repo, secret, field, format string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// promptValues asks for each field's value with hidden input; blank answers are skipped.
-func (a *app) promptValues(r *vault.Repo) (map[string]string, error) {
+// promptValues asks for each field's value with hidden input; blank answers are
+// skipped (keeping any existing value). An answer that fails the field's rules is
+// explained on errw and asked again rather than aborting the whole entry.
+func (a *app) promptValues(r *vault.Repo, existing map[string]string, errw io.Writer) (map[string]string, error) {
 	if len(r.Fields) == 0 {
 		return nil, errors.New("repository has no fields; create fields first (mpm field create)")
 	}
 	out := map[string]string{}
 	for _, f := range r.Fields {
-		v, err := a.prompt(f.Name + ": ")
-		if err != nil {
-			return nil, err
-		}
-		if v != "" {
-			out[f.Name] = v
+		for {
+			v, err := a.prompt(f.Name + ": ")
+			if err != nil {
+				return nil, err
+			}
+			if v == "" && existing[f.Name] != "" {
+				break
+			}
+			if err := r.ValidateField(f.Name, v); err != nil {
+				_, _ = fmt.Fprintln(errw, err)
+				continue
+			}
+			if v != "" {
+				out[f.Name] = v
+			}
+			break
 		}
 	}
 	return out, nil
@@ -118,7 +131,7 @@ func (a *app) secretCmd() *cobra.Command {
 				if cmd.Flags().Changed("value") {
 					vals, err = cli.ParseValue(value)
 				} else {
-					vals, err = a.promptValues(r)
+					vals, err = a.promptValues(r, existing, cmd.ErrOrStderr())
 				}
 				if err != nil {
 					return err

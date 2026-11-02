@@ -80,6 +80,7 @@ type Model struct {
 	promptInput  textinput.Model
 	promptLabel  string
 	promptFn     promptFunc
+	promptCheck  func(string) error // optional: Enter is refused (and the input kept) while it errors
 	confirmLabel string
 	confirmFn    confirmedFunc
 
@@ -264,8 +265,16 @@ func (m *Model) promptKey(msg tea.KeyMsg) tea.Cmd {
 	case tea.KeyEsc:
 		m.mode = modeList
 		m.promptFn = nil
+		m.promptCheck = nil
 	case tea.KeyEnter:
+		if m.promptCheck != nil {
+			if err := m.promptCheck(m.promptInput.Value()); err != nil {
+				m.msg = errText(err)
+				return nil
+			}
+		}
 		fn, v := m.promptFn, m.promptInput.Value()
+		m.promptCheck = nil
 		m.mode = modeList
 		m.promptFn = nil
 		if fn != nil {
@@ -286,6 +295,14 @@ func (m *Model) ask(label string, hidden bool, fn promptFunc) {
 	}
 	in.Focus()
 	m.promptInput, m.promptLabel, m.promptFn, m.mode = in, label, fn, modePrompt
+	m.promptCheck = nil
+}
+
+// askChecked is ask with a validator: the view shows a live ✓/✗, and Enter is
+// refused with the validator's message until the input passes.
+func (m *Model) askChecked(label string, hidden bool, check func(string) error, fn promptFunc) {
+	m.ask(label, hidden, fn)
+	m.promptCheck = check
 }
 
 func (m *Model) confirm(label string, fn confirmedFunc) {

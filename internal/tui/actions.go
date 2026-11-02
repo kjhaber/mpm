@@ -217,7 +217,7 @@ func (m *Model) newSecret() {
 				return
 			}
 			f := r.Fields[i].Name
-			m.ask(f+": ", true, func(v string) {
+			m.askChecked(f+": ", true, func(v string) error { return r.ValidateField(f, v) }, func(v string) {
 				if v != "" {
 					vals[f] = v
 				}

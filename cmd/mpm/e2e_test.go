@@ -180,6 +180,37 @@ func TestSecretPromptsWhenValueOmitted(t *testing.T) {
 	}
 }
 
+func TestSecretPromptRetriesInvalidFieldValue(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "r")
+	e.must("field", "create", "--repo", "r", "--field", "user")
+	e.must("field", "create", "--repo", "r", "--field", "pin")
+	e.must("field", "set-attrib", "--repo", "r", "--field", "pin", "--attrib", "pattern", "--value", "[0-9]+")
+	e.prompts = []string{"me", "abc", "1234"} // the bad pin is re-asked
+	out, err := e.run("secret", "create", "--repo", "r", "--secret", "gh")
+	if err != nil {
+		t.Fatalf("a bad answer must be re-asked, not abort the entry: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "does not match") {
+		t.Fatalf("the user should be told why the answer was refused: %q", out)
+	}
+	if got := e.must("secret", "show", "--repo", "r", "--secret", "gh"); got != "user: me\npin: 1234\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSecretPromptRetriesBlankRequiredField(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "r")
+	e.must("field", "create", "--repo", "r", "--field", "user")
+	e.must("field", "set-attrib", "--repo", "r", "--field", "user", "--attrib", "required", "--value", "true")
+	e.prompts = []string{"", "me"}
+	out, err := e.run("secret", "create", "--repo", "r", "--secret", "gh")
+	if err != nil || !strings.Contains(out, "required") {
+		t.Fatalf("err=%v out=%q", err, out)
+	}
+}
+
 func TestValidationErrors(t *testing.T) {
 	e := newTestEnv(t)
 	e.must("repo", "create", "--repo", "r")

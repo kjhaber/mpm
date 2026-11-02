@@ -101,7 +101,7 @@ Secret names may contain any characters except control characters (newlines, esc
 
 `secret update` merges: fields not listed in `--value` keep their current values (when prompting, a blank answer keeps the current value).
 
-In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash (a backslash before any other character is kept as written).  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  Values are validated against each field's `required` and `pattern` attributes.
+In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash (a backslash before any other character is kept as written).  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  A value that fails its field's rules is explained and asked for again instead of aborting the whole entry.  Values are validated against each field's `required` and `pattern` attributes.
 
 `secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  mpm never clears or reads the clipboard (clearing risks wiping something else you copied meanwhile), so a copied secret stays there until you replace it.  OSC52 is written to the terminal, never to redirected stdout.
 
@@ -121,7 +121,7 @@ TUI interface has following "screens":
 * Secret selection: lists secrets within selected repository
   - <Enter> to select secret
   - <ESC> to return to repository selection
-  - "N" to create new secret
+  - "N" to create new secret (each field is asked in turn with hidden input; a live ✓/✗ shows whether the value satisfies the field's pattern and required rules, and <Enter> is refused until it does)
   - "X" to delete secret
   - "/" to filter list (fuzzy search)
   - "Q" or <Ctrl-C> to exit TUI

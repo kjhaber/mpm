@@ -19,6 +19,8 @@ var (
 	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	msgStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	cursorStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62"))
+	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	badStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 )
 
 func (m *Model) title() string {
@@ -59,6 +61,18 @@ func (m *Model) row(name string) string {
 	return vault.SafeName(name)
 }
 
+// promptIndicator is a live validity mark for checked prompts: ✓ when Enter would
+// be accepted, ✗ when it would be refused.
+func (m *Model) promptIndicator() string {
+	if m.promptCheck == nil {
+		return ""
+	}
+	if m.promptCheck(m.promptInput.Value()) != nil {
+		return " " + badStyle.Render("✗")
+	}
+	return " " + okStyle.Render("✓")
+}
+
 func (m *Model) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(m.title()) + "\n\n")
@@ -78,7 +92,7 @@ func (m *Model) View() string {
 
 	switch m.mode {
 	case modePrompt:
-		b.WriteString(m.promptLabel + m.promptInput.View() + "\n")
+		b.WriteString(m.promptLabel + m.promptInput.View() + m.promptIndicator() + "\n")
 	case modeConfirm:
 		b.WriteString(m.confirmLabel + " (y/N)\n")
 	case modeFilter:

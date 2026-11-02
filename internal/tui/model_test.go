@@ -333,7 +333,36 @@ func TestNewAndDeleteSecret(t *testing.T) {
 	}
 }
 
-func TestNewSecretValidationError(t *testing.T) {
+func TestNewSecretRetriesInvalidFieldWithoutLosingEarlierAnswers(t *testing.T) {
+	e := newEnv(t)
+	e.seed()
+	h, _ := e.store.Open("web", "pw")
+	_ = h.Repo.SetAttrib("pass", "pattern", "[a-z0-9]+")
+	_ = h.Save()
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{Repo: "web"})
+	press(m, k("n"))
+	typ(m, "bank")
+	press(m, enter)
+	typ(m, "me") // user: ok
+	press(m, enter)
+	typ(m, "ABC") // pass: violates [a-z0-9]+
+	press(m, enter)
+	mustContain(t, m, "does not match")
+	mustContain(t, m, "pass:") // still asking for pass, not aborted
+	if _, ok := e.repoOf("web").Secrets["bank"]; ok {
+		t.Fatal("nothing should be saved until every field is accepted")
+	}
+	press(m, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace})
+	typ(m, "1234")
+	press(m, enter)
+	got := e.repoOf("web").Secrets["bank"]
+	if got["user"] != "me" || got["pass"] != "1234" {
+		t.Fatalf("got %v (earlier answers must survive the retry)", got)
+	}
+}
+
+func TestNewSecretShowsLiveValidityIndicator(t *testing.T) {
 	e := newEnv(t)
 	e.seed()
 	h, _ := e.store.Open("web", "pw")
@@ -342,16 +371,31 @@ func TestNewSecretValidationError(t *testing.T) {
 	e.deps.EnvPassword = "pw"
 	m := New(e.deps, Options{Repo: "web"})
 	press(m, k("n"))
-	typ(m, "bad")
+	typ(m, "bank")
 	press(m, enter)
 	typ(m, "UPPER")
-	press(m, enter)
-	typ(m, "x")
-	press(m, enter)
-	mustContain(t, m, "does not match")
-	if _, ok := e.repoOf("web").Secrets["bad"]; ok {
-		t.Fatal("invalid secret must not be saved")
-	}
+	mustContain(t, m, "✗")
+	mustNotContain(t, m, "✓")
+	press(m, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace})
+	typ(m, "ok")
+	mustContain(t, m, "✓")
+	mustNotContain(t, m, "✗")
+}
+
+func TestNewSecretRequiredFieldCannotBeBlank(t *testing.T) {
+	e := newEnv(t)
+	e.seed()
+	h, _ := e.store.Open("web", "pw")
+	h.Repo.Secrets = nil // required can only be set while the repo has no secrets
+	_ = h.Repo.SetAttrib("user", "required", "true")
+	_ = h.Save()
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{Repo: "web"})
+	press(m, k("n"))
+	typ(m, "bank")
+	press(m, enter, enter) // blank answer for the required field
+	mustContain(t, m, "required")
+	mustContain(t, m, "user:")
 }
 
 func TestRepoFieldsScreen(t *testing.T) {
