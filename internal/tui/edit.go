@@ -43,6 +43,9 @@ func parseEdit(text string, fields []string) (map[string]string, error) {
 		if !known[name] {
 			return nil, fmt.Errorf("line %d: unknown field %q", i+1, name)
 		}
+		if _, dup := out[name]; dup {
+			return nil, fmt.Errorf("line %d: field %q given more than once", i+1, name)
+		}
 		out[name] = unescapeEdit(strings.TrimPrefix(rest, " "))
 	}
 	return out, nil

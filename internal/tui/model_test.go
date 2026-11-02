@@ -568,3 +568,10 @@ func TestCopyWithUnclearableClipboardWarns(t *testing.T) {
 		t.Fatalf("no clear helper should be spawned: %v", e.spawned)
 	}
 }
+
+func TestParseEditRejectsDuplicateFields(t *testing.T) {
+	_, err := parseEdit("a: 1\nb: 2\na: 3\n", []string{"a", "b"})
+	if err == nil || !strings.Contains(err.Error(), "line 3") || !strings.Contains(err.Error(), "more than once") {
+		t.Fatalf("got %v", err)
+	}
+}
