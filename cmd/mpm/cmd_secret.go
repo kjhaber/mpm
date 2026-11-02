@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kjhaber/mpm/internal/cli"
+	"github.com/kjhaber/mpm/internal/clip"
 	"github.com/kjhaber/mpm/internal/vault"
 )
 
@@ -175,6 +176,10 @@ func (a *app) secretCmd() *cobra.Command {
 			}
 			if err := a.clip.Write(s); err != nil {
 				return err
+			}
+			if !noClear && !clip.SupportsClear(a.clip) {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Copied to clipboard (this clipboard type cannot be cleared automatically).")
+				return nil
 			}
 			if !noClear {
 				if err := a.spawnClear(s, clipboardClearAfter); err != nil {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/kjhaber/mpm/internal/childenv"
 	"github.com/kjhaber/mpm/internal/cli"
 	"github.com/kjhaber/mpm/internal/clip"
 	"github.com/kjhaber/mpm/internal/config"
@@ -38,7 +39,7 @@ func newApp() *app {
 		env:        os.Getenv,
 		in:         os.Stdin,
 		crypter:    crypt.NewOpenSSL(),
-		clip:       clip.Detect(exec.LookPath, runtime.GOOS, os.Stdout),
+		clip:       clip.Detect(exec.LookPath, runtime.GOOS, nil),
 		spawnClear: spawnClipclear,
 		prompt:     cli.TTYPrompt,
 	}
@@ -51,8 +52,7 @@ func spawnClipclear(value string, after time.Duration) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "_clipclear", "--after", after.String())
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd := clipclearCommand(exe, after)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -64,6 +64,14 @@ func spawnClipclear(value string, after time.Duration) error {
 	_ = stdin.Close()
 	_ = cmd.Process.Release()
 	return werr
+}
+
+// clipclearCommand builds the detached helper command, without MPM_PASSWORD in its environment.
+func clipclearCommand(exe string, after time.Duration) *exec.Cmd {
+	cmd := exec.Command(exe, "_clipclear", "--after", after.String())
+	cmd.Env = childenv.Env()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return cmd
 }
 
 func (a *app) settings() (config.Settings, error) { return config.Load(a.env, config.Settings{}) }

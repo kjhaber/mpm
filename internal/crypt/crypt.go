@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+
+	"github.com/kjhaber/mpm/internal/childenv"
 )
 
 // ErrBadPassword is returned when decryption fails (wrong password or corrupt data).
@@ -61,6 +63,7 @@ func run(password string, in []byte, decrypt bool) ([]byte, error) {
 	defer func() { _ = pr.Close() }()
 
 	cmd := exec.Command(path, args...)
+	cmd.Env = childenv.Env()
 	cmd.Stdin = bytes.NewReader(in)
 	cmd.ExtraFiles = []*os.File{pr}
 	var stdout bytes.Buffer

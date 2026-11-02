@@ -45,3 +45,13 @@ func TestFormatValueRoundTrip(t *testing.T) {
 		t.Fatalf("round trip: %v %v", out, err)
 	}
 }
+
+func TestParseValueKeepsBackslashBeforeOtherCharacters(t *testing.T) {
+	got, err := ParseValue(`pw:a\b\nc\\d,path:C:\temp`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["pw"] != `a\b\nc\d` || got["path"] != `C:\temp` {
+		t.Fatalf("got %q", got)
+	}
+}

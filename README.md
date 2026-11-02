@@ -26,7 +26,7 @@ openssl enc -d -aes-256-cbc -a -salt -pbkdf2 -iter 100000 -in ~/.local/share/mpm
 (or with `vicrypt <file>`).  mpm saves by writing a temp file and renaming it over the original, and refuses to overwrite a file that changed on disk since it was read.
 
 ### Passwords
-mpm reads a repository's password from the `MPM_PASSWORD` environment variable if set (useful for scripts and tests), otherwise from a hidden prompt on the terminal.  It errors if neither is available.  Passwords are never accepted as command line arguments.  A password is cached in memory for the life of the process only (the TUI asks once per repository until it exits).
+mpm reads a repository's password from the `MPM_PASSWORD` environment variable if set (useful for scripts and tests), otherwise from a hidden prompt on the terminal.  It errors if neither is available.  Passwords are never accepted as command line arguments.  `MPM_PASSWORD` is not passed to child processes (openssl gets the password on a private pipe; editors, clipboard tools and helpers never see it).  A password is cached in memory for the life of the process only (the TUI asks once per repository until it exits).
 
 ### Locations
 Paths follow the XDG base directory spec:
@@ -96,9 +96,9 @@ mpm secret delete --repo <repo-name> --secret <secret-name>
 
 `secret update` merges: fields not listed in `--value` keep their current values (when prompting, a blank answer keeps the current value).
 
-In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash.  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  Values are validated against each field's `required` and `pattern` attributes.
+In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash (a backslash before any other character is kept as written).  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  Values are validated against each field's `required` and `pattern` attributes.
 
-`secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  The clipboard is cleared after 30 seconds, but only if it still holds the copied value.  `--no-clear` disables that.
+`secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  The clipboard is cleared after 30 seconds, but only if it still holds the copied value.  `--no-clear` disables that.  The OSC52 fallback can't be read back, so it can't be cleared automatically; mpm says so when copying.  OSC52 is written to the terminal, never to redirected stdout.
 
 ## TUI mode
 Running `mpm tui` runs mpm in a TUI mode.

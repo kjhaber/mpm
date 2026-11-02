@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+
+	"github.com/kjhaber/mpm/internal/childenv"
 )
 
 // Clipboard reads and writes the system clipboard.
@@ -24,6 +26,7 @@ type cmdClipboard struct {
 
 func (c *cmdClipboard) Write(text string) error {
 	cmd := exec.Command(c.writeCmd[0], c.writeCmd[1:]...)
+	cmd.Env = childenv.Env()
 	cmd.Stdin = bytes.NewBufferString(text)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", c.writeCmd[0], err)
@@ -32,7 +35,9 @@ func (c *cmdClipboard) Write(text string) error {
 }
 
 func (c *cmdClipboard) Read() (string, error) {
-	out, err := exec.Command(c.readCmd[0], c.readCmd[1:]...).Output()
+	cmd := exec.Command(c.readCmd[0], c.readCmd[1:]...)
+	cmd.Env = childenv.Env()
+	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", c.readCmd[0], err)
 	}
@@ -50,7 +55,7 @@ func (osc52) Read() (string, error) { return "", errors.New("clipboard cannot be
 
 // Detect picks a clipboard for the platform: pbcopy on darwin; wl-copy, xclip
 // or xsel on linux; otherwise an OSC52 terminal escape written to osc52Out
-// (os.Stdout when nil).
+// (the controlling terminal when nil).
 func Detect(lookPath func(string) (string, error), goos string, osc52Out io.Writer) Clipboard {
 	has := func(n string) bool { _, err := lookPath(n); return err == nil }
 	switch goos {
@@ -69,9 +74,29 @@ func Detect(lookPath func(string) (string, error), goos string, osc52Out io.Writ
 		}
 	}
 	if osc52Out == nil {
-		osc52Out = os.Stdout
+		osc52Out = ttyWriter{}
 	}
 	return osc52{osc52Out}
+}
+
+// SupportsClear reports whether the clipboard can be read back, which
+// ClearIfUnchanged needs. OSC52 is write-only.
+func SupportsClear(c Clipboard) bool {
+	_, isOSC := c.(osc52)
+	return !isOSC
+}
+
+// ttyWriter writes to the controlling terminal so OSC52 never lands in a
+// redirected stdout.
+type ttyWriter struct{}
+
+func (ttyWriter) Write(p []byte) (int, error) {
+	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+	if err != nil {
+		return 0, errors.New("no terminal available for OSC52 clipboard")
+	}
+	defer func() { _ = tty.Close() }()
+	return tty.Write(p)
 }
 
 // ClearIfUnchanged empties the clipboard only if it still holds want.

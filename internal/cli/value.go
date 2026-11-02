@@ -69,7 +69,7 @@ func unescape(s string) string {
 	var b strings.Builder
 	rs := []rune(s)
 	for i := 0; i < len(rs); i++ {
-		if rs[i] == '\\' && i+1 < len(rs) {
+		if rs[i] == '\\' && i+1 < len(rs) && strings.ContainsRune(`,:\`, rs[i+1]) {
 			i++
 		}
 		b.WriteRune(rs[i])

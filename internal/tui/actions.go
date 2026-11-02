@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kjhaber/mpm/internal/clip"
 	"github.com/kjhaber/mpm/internal/vault"
 )
 
@@ -255,7 +256,9 @@ func (m *Model) fieldsKey(key string) tea.Cmd {
 			return nil
 		}
 		m.msg = fmt.Sprintf("Copied %s to clipboard", sel)
-		if m.deps.SpawnClear != nil && m.deps.ClearAfter > 0 {
+		if !clip.SupportsClear(m.deps.Clip) {
+			m.msg += " (this clipboard type cannot be cleared automatically)"
+		} else if m.deps.SpawnClear != nil && m.deps.ClearAfter > 0 {
 			if err := m.deps.SpawnClear(v, m.deps.ClearAfter); err != nil {
 				m.msg = "Copied, but could not schedule clipboard clear: " + err.Error()
 			} else {
@@ -283,12 +286,12 @@ func (m *Model) startEdit() tea.Cmd {
 		m.msg = err.Error()
 		return nil
 	}
-	m.edit = sess
+	m.setEdit(sess)
 	return m.deps.RunEditor(sess.path, func(err error) tea.Msg { return editDoneMsg{err} })
 }
 
 func (m *Model) finishEdit(editErr error) {
-	sess := m.edit
+	sess := m.currentEdit()
 	if sess == nil {
 		return
 	}

@@ -4,6 +4,7 @@ package tui
 import (
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -94,7 +95,8 @@ type Model struct {
 	revealName string
 	revealSeq  int
 
-	edit *editSession
+	editMu sync.Mutex // guards edit; Cleanup may run on a signal goroutine
+	edit   *editSession
 }
 
 // New builds the model, navigating to any pre-selected repo/secret.
@@ -119,10 +121,24 @@ func (m *Model) Init() tea.Cmd { return nil }
 
 // Cleanup removes any decrypted temp files; safe to call from a signal handler.
 func (m *Model) Cleanup() {
+	m.editMu.Lock()
+	defer m.editMu.Unlock()
 	if m.edit != nil {
 		m.edit.cleanup()
 		m.edit = nil
 	}
+}
+
+func (m *Model) setEdit(s *editSession) {
+	m.editMu.Lock()
+	m.edit = s
+	m.editMu.Unlock()
+}
+
+func (m *Model) currentEdit() *editSession {
+	m.editMu.Lock()
+	defer m.editMu.Unlock()
+	return m.edit
 }
 
 func (m *Model) quit() tea.Cmd {

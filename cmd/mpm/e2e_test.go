@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kjhaber/mpm/internal/clip"
 	"github.com/kjhaber/mpm/internal/crypt"
 )
 
@@ -255,5 +257,41 @@ func TestTUIFlagValidation(t *testing.T) {
 	}
 	if err := e.mustFail("tui", "--resume", "--repo", "r"); !strings.Contains(err.Error(), "--resume") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestChildCommandsDoNotInheritPassword(t *testing.T) {
+	t.Setenv("MPM_PASSWORD", "hunter2")
+	for name, cmd := range map[string]*exec.Cmd{
+		"editor":    editorCommand(func(string) string { return "" }, "/tmp/x"),
+		"clipclear": clipclearCommand("/bin/mpm", 30*time.Second),
+	} {
+		for _, kv := range cmd.Env {
+			if strings.HasPrefix(kv, "MPM_PASSWORD=") {
+				t.Fatalf("%s command inherits MPM_PASSWORD", name)
+			}
+		}
+		if cmd.Env == nil {
+			t.Fatalf("%s command must set Env explicitly", name)
+		}
+	}
+	if got := editorCommand(func(string) string { return "  " }, "/tmp/x"); got.Args[0] != "vi" {
+		t.Fatalf("blank $VISUAL should fall back to vi: %v", got.Args)
+	}
+}
+
+func TestCopyWithUnclearableClipboardSaysSo(t *testing.T) {
+	e := newTestEnv(t)
+	var buf bytes.Buffer
+	e.a.clip = clip.Detect(func(string) (string, error) { return "", errors.New("none") }, "linux", &buf)
+	e.must("repo", "create", "--repo", "r")
+	e.must("field", "create", "--repo", "r", "--field", "f")
+	e.must("secret", "create", "--repo", "r", "--secret", "s", "--value", "f:v")
+	out := e.must("secret", "copy", "--repo", "r", "--secret", "s")
+	if !strings.Contains(out, "cannot be cleared automatically") || len(e.spawned) != 0 {
+		t.Fatalf("out=%q spawned=%v", out, e.spawned)
+	}
+	if !strings.Contains(buf.String(), "\x1b]52;c;") {
+		t.Fatalf("OSC52 not written: %q", buf.String())
 	}
 }

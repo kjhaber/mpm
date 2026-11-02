@@ -3,6 +3,9 @@ package clip
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -73,5 +76,27 @@ func TestClearIfUnchanged(t *testing.T) {
 	f.val = "other"
 	if err := ClearIfUnchanged(f, "secret"); err != nil || f.val != "other" {
 		t.Fatalf("should leave alone: %q %v", f.val, err)
+	}
+}
+
+func TestClipboardChildDoesNotInheritPassword(t *testing.T) {
+	dump := filepath.Join(t.TempDir(), "env.txt")
+	t.Setenv("MPM_PASSWORD", "hunter2")
+	c := &cmdClipboard{writeCmd: []string{"sh", "-c", "env > " + dump}, readCmd: []string{"true"}}
+	if err := c.Write("x"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(dump)
+	if strings.Contains(string(b), "MPM_PASSWORD") {
+		t.Fatal("clipboard child inherited MPM_PASSWORD")
+	}
+}
+
+func TestSupportsClear(t *testing.T) {
+	if SupportsClear(Detect(lookPathOf("pbcopy", "pbpaste"), "darwin", nil)) != true {
+		t.Fatal("pbcopy clipboards can be cleared")
+	}
+	if SupportsClear(Detect(lookPathOf(), "linux", &bytes.Buffer{})) {
+		t.Fatal("OSC52 clipboards cannot be read back, so cannot be auto-cleared")
 	}
 }

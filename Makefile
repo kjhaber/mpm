@@ -31,7 +31,7 @@ test:
 # Run tests with coverage and print report
 cover:
 	@mkdir -p $(BUILD_DIR)
-	@$(TEST_ENV) go test ./... -coverprofile=$(BUILD_DIR)/coverage.out
+	@$(TEST_ENV) go test -race ./... -coverprofile=$(BUILD_DIR)/coverage.out
 	@go tool cover -func=$(BUILD_DIR)/coverage.out
 
 # Build the binary (inject version from nearest git tag, fallback to "dev")

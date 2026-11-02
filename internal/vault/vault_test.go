@@ -300,3 +300,19 @@ func TestRealOpenSSLRoundTrip(t *testing.T) {
 		t.Fatalf("%+v %v", h2, err)
 	}
 }
+
+func TestSaveSyncsFileAndDirectoryBeforeReturning(t *testing.T) {
+	var calls int
+	orig := syncFile
+	syncFile = func(f *os.File) error { calls++; return f.Sync() }
+	t.Cleanup(func() { syncFile = orig })
+	s := newStore(t)
+	h := mustCreateOpen(t, s, "web")
+	calls = 0
+	if err := h.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if calls < 2 {
+		t.Fatalf("expected temp file and directory fsync, got %d sync calls", calls)
+	}
+}

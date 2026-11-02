@@ -3,7 +3,9 @@ package crypt
 import (
 	"bytes"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -72,5 +74,24 @@ func TestOpenSSLMissing(t *testing.T) {
 	_, err := NewOpenSSL().Encrypt("pw", []byte("x"))
 	if err == nil || !strings.Contains(err.Error(), "openssl") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestOpenSSLChildDoesNotInheritPassword(t *testing.T) {
+	dir := t.TempDir()
+	dump := filepath.Join(dir, "env.txt")
+	shim := "#!/bin/sh\nenv > " + dump + "\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "openssl"), []byte(shim), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("MPM_PASSWORD", "hunter2")
+	_, _ = NewOpenSSL().Encrypt("pw", []byte("x"))
+	b, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "MPM_PASSWORD") {
+		t.Fatal("openssl child inherited MPM_PASSWORD")
 	}
 }

@@ -16,6 +16,9 @@ import (
 	"github.com/kjhaber/mpm/internal/crypt"
 )
 
+// syncFile flushes a file or directory to stable storage (swapped out in tests).
+var syncFile = func(f *os.File) error { return f.Sync() }
+
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._ -]*$`)
 
 func validateName(name string) error {
@@ -200,8 +203,25 @@ func (s *Store) write(path string, r *Repo, password string) error {
 		_ = tmp.Close()
 		return err
 	}
+	if err := syncFile(tmp); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	return syncDir(s.Root)
+}
+
+// syncDir fsyncs a directory so a rename into it survives a crash.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	return syncFile(d)
 }

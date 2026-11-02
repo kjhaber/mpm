@@ -6,11 +6,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/kjhaber/mpm/internal/childenv"
 	"github.com/kjhaber/mpm/internal/config"
 	"github.com/kjhaber/mpm/internal/tui"
 )
@@ -41,20 +43,27 @@ func (a *app) tuiCmd() *cobra.Command {
 				RunEditor:   runEditor(a.env),
 			}, tui.Options{Repo: repo, Secret: secret, Resume: resume})
 
-			// Remove decrypted temp files if we are killed while editing.
+			// We own signal handling (bubbletea's handler is disabled) so that on
+			// SIGTERM/SIGHUP we remove decrypted temp files, let bubbletea restore
+			// the terminal via Kill, and then exit with the conventional status.
+			p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithoutSignalHandler())
 			sigs := make(chan os.Signal, 1)
-			signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
+			signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 			defer signal.Stop(sigs)
+			var got atomic.Int32
 			go func() {
 				if s, ok := <-sigs; ok {
+					got.Store(int32(s.(syscall.Signal)))
 					m.Cleanup()
-					signal.Stop(sigs)
-					_ = syscall.Kill(os.Getpid(), s.(syscall.Signal))
+					p.Kill()
 				}
 			}()
 
-			_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+			_, err = p.Run()
 			m.Cleanup()
+			if s := got.Load(); s != 0 {
+				os.Exit(128 + int(s))
+			}
 			return err
 		},
 	}
@@ -67,15 +76,22 @@ func (a *app) tuiCmd() *cobra.Command {
 // runEditor suspends the TUI and runs $VISUAL/$EDITOR (default vi) on path.
 func runEditor(env func(string) string) func(string, func(error) tea.Msg) tea.Cmd {
 	return func(path string, done func(error) tea.Msg) tea.Cmd {
-		editor := env("VISUAL")
-		if editor == "" {
-			editor = env("EDITOR")
-		}
-		if editor == "" {
-			editor = "vi"
-		}
-		parts := strings.Fields(editor)
-		cmd := exec.Command(parts[0], append(parts[1:], path)...)
-		return tea.ExecProcess(cmd, func(err error) tea.Msg { return done(err) })
+		return tea.ExecProcess(editorCommand(env, path), func(err error) tea.Msg { return done(err) })
 	}
+}
+
+// editorCommand builds the $VISUAL/$EDITOR command (default vi) for path,
+// without MPM_PASSWORD in its environment.
+func editorCommand(env func(string) string, path string) *exec.Cmd {
+	editor := strings.TrimSpace(env("VISUAL"))
+	if editor == "" {
+		editor = strings.TrimSpace(env("EDITOR"))
+	}
+	if editor == "" {
+		editor = "vi"
+	}
+	parts := strings.Fields(editor)
+	cmd := exec.Command(parts[0], append(parts[1:], path)...)
+	cmd.Env = childenv.Env()
+	return cmd
 }

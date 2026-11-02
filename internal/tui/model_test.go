@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kjhaber/mpm/internal/clip"
 	"github.com/kjhaber/mpm/internal/config"
 	"github.com/kjhaber/mpm/internal/crypt"
 	"github.com/kjhaber/mpm/internal/vault"
@@ -535,5 +537,34 @@ func TestResumeAndStateSavedOnQuit(t *testing.T) {
 	st, _ = config.LoadState(e.statePath)
 	if st != (config.State{}) {
 		t.Fatalf("state=%+v", st)
+	}
+}
+
+func TestCleanupIsSafeAgainstConcurrentEdit(t *testing.T) {
+	e := newEnv(t)
+	m := openFields(t, e)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			m.Cleanup() // as the signal goroutine does
+		}
+	}()
+	for i := 0; i < 50; i++ {
+		press(m, k("e"))
+	}
+	<-done
+	m.Cleanup()
+}
+
+func TestCopyWithUnclearableClipboardWarns(t *testing.T) {
+	e := newEnv(t)
+	var buf bytes.Buffer
+	e.deps.Clip = clip.Detect(func(string) (string, error) { return "", errors.New("none") }, "linux", &buf)
+	m := openFields(t, e)
+	press(m, k("c"))
+	mustContain(t, m, "cannot be cleared automatically")
+	if len(e.spawned) != 0 {
+		t.Fatalf("no clear helper should be spawned: %v", e.spawned)
 	}
 }
