@@ -94,6 +94,8 @@ mpm secret copy --repo <repo-name> --secret <secret-name> [--field <field-name>]
 mpm secret delete --repo <repo-name> --secret <secret-name>
 ```
 
+`secret update` merges: fields not listed in `--value` keep their current values (when prompting, a blank answer keeps the current value).
+
 In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash.  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  Values are validated against each field's `required` and `pattern` attributes.
 
 `secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  The clipboard is cleared after 30 seconds, but only if it still holds the copied value.  `--no-clear` disables that.
@@ -107,7 +109,7 @@ TUI interface has following "screens":
   - <ESC> to exit TUI
   - "N" to create new repository
   - "X" to delete repository (if no secrets in repository)
-  - "F" to enter repository fields to show/modify repository's fields
+  - "F" to enter repository fields to show/modify repository's fields (on that screen: "N" add field, "X" delete field, "R" toggle required, "P" set regex pattern)
   - "/" to filter list (fuzzy search)
   - "Q" or <Ctrl-C> to exit TUI
 
@@ -123,19 +125,19 @@ TUI interface has following "screens":
   - <Enter> to select field
   - <ESC> to return to Secret selection
   - "C" to copy selected field value to clipboard
-  - "S" to show selected field value on screen (it is hidden again after a few seconds)
-  - "E" to edit secret in `$EDITOR` (the secret is written as `field: value` lines to a private temp file that is removed afterward; values are validated on save)
+  - <Enter> or "S" to show selected field value on screen (it is hidden again after a few seconds)
+  - "E" to edit secret in `$EDITOR` (the secret is written as `field: value` lines to a private temp file that is removed afterward; values are validated on save; a backslash or newline inside a value appears as `\\` or `\n`)
   - "Q" or <Ctrl-C> to exit TUI
 
 In general <Enter> key drills down toward secret value, and <ESC> key steps back out a level.  Arrows move up and down the list.  Pressing <ESC> enough times will exit out of the program.  "Q" and <Ctrl-C> will immediately exit from the program.
 
-"/" key shows a search filter text box (similar to vim search command).  The list of matches live-updates while typing in the filter.  <ESC> from the filter control clears the filter and exits back to normal view for the screen.  <Enter> from the filter control accepts the filter, leaving it applied, and exits back to normal view for the screen.  Fuzzy matching is built in (no fzf needed).  The filter applies to the list on the current screen only: secret names live inside each encrypted repository, so searching across all repositories would require every repository's password.
+"/" key shows a search filter text box (similar to vim search command).  The list of matches live-updates while typing in the filter.  <ESC> from the filter control clears the filter and exits back to normal view for the screen.  <Enter> from the filter control accepts the filter, leaving it applied, and exits back to normal view for the screen.  While a filter is applied, <ESC> clears it before stepping back.  Fuzzy matching is built in (no fzf needed).  The filter applies to the list on the current screen only: secret names live inside each encrypted repository, so searching across all repositories would require every repository's password.
 
 Command line args to `mpm tui` can start the TUI mode with some values pre-selected.
 * `mpm tui`: start at repository selection (lists repositories)
 * `mpm tui --repo <repo-name>`: start at secret selection (lists secrets in repository)
 * `mpm tui --repo <repo-name> --secret <secret-name>`: start at secret field selection (list fields in secret)
-* `mpm tui --resume`: start at same screen/secret that was selected when mpm tui was previously exited
+* `mpm tui --resume`: start at same screen/secret that was selected when mpm tui was previously exited (cannot be combined with `--repo`/`--secret`)
 
 ### tmux
 To pop the TUI open in a new pane for quick access to secrets, add to `tmux.conf`:
