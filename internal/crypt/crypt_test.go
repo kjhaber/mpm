@@ -35,10 +35,32 @@ func TestWrongPasswordReturnsErrBadPassword(t *testing.T) {
 	}
 }
 
-func TestCorruptCiphertextReturnsErrBadPassword(t *testing.T) {
+func TestCorruptCiphertextIsNotReportedAsBadPassword(t *testing.T) {
 	c := NewOpenSSL()
-	if _, err := c.Decrypt("pw", []byte("not ciphertext at all")); !errors.Is(err, ErrBadPassword) {
+	_, err := c.Decrypt("pw", []byte("not ciphertext at all"))
+	if err == nil || errors.Is(err, ErrBadPassword) {
 		t.Fatalf("got %v", err)
+	}
+	if !strings.Contains(err.Error(), "error reading input file") {
+		t.Fatalf("error should carry openssl's message, got %v", err)
+	}
+}
+
+func TestOpenSSLFailureShowsStderr(t *testing.T) {
+	dir := t.TempDir()
+	shim := "#!/bin/sh\necho 'enc: Unknown option: -pbkdf2' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "openssl"), []byte(shim), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	for name, fn := range map[string]func() error{
+		"encrypt": func() error { _, err := NewOpenSSL().Encrypt("pw", []byte("x")); return err },
+		"decrypt": func() error { _, err := NewOpenSSL().Decrypt("pw", []byte("x")); return err },
+	} {
+		err := fn()
+		if err == nil || errors.Is(err, ErrBadPassword) || !strings.Contains(err.Error(), "Unknown option: -pbkdf2") {
+			t.Errorf("%s: got %v", name, err)
+		}
 	}
 }
 

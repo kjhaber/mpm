@@ -51,12 +51,23 @@ func (opensslCrypter) Encrypt(password string, plaintext []byte) ([]byte, error)
 func (opensslCrypter) Decrypt(password string, ciphertext []byte) ([]byte, error) {
 	out, err := run(password, ciphertext, true)
 	if err != nil {
-		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		if strings.Contains(err.Error(), "bad decrypt") {
 			return nil, ErrBadPassword
 		}
 		return nil, fmt.Errorf("decrypting: %w", err)
 	}
 	return out, nil
+}
+
+// message prefers openssl's own stderr text over a bare exit status.
+func message(stderr string, err error) string {
+	if s := strings.TrimSpace(stderr); s != "" {
+		if len(s) > 500 {
+			s = s[:500]
+		}
+		return s
+	}
+	return err.Error()
 }
 
 func run(password string, in []byte, decrypt bool) ([]byte, error) {
@@ -85,6 +96,8 @@ func run(password string, in []byte, decrypt bool) ([]byte, error) {
 	cmd.ExtraFiles = []*os.File{pr}
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		_ = pw.Close()
 		return nil, err
@@ -93,7 +106,7 @@ func run(password string, in []byte, decrypt bool) ([]byte, error) {
 	_, werr := pw.WriteString(password + "\n")
 	_ = pw.Close()
 	if err := cmd.Wait(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openssl: %s", message(stderr.String(), err))
 	}
 	if werr != nil {
 		return nil, werr
