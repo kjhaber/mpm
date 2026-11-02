@@ -23,7 +23,7 @@ over a JSON document holding the repository's fields and secrets.  These are the
 openssl enc -d -aes-256-cbc -a -salt -pbkdf2 -iter 100000 -in ~/.local/share/mpm/<repo-name>.enc
 ```
 
-(or with `vicrypt <file>`).  mpm saves by writing a temp file and renaming it over the original (if a repository file is a symlink, the link is kept and its target is updated), and refuses to overwrite a file that changed on disk since it was read.
+(or with `vicrypt <file>`).  mpm saves by writing a temp file and renaming it over the original (if a repository file is a symlink, the link is kept and its target is updated), and refuses to overwrite a file that changed on disk since it was read.  Saves take a per-repository lock (a hidden `.<repo-name>.lock` file next to it), so two mpm processes saving at once cannot silently overwrite each other: the second one fails with a changed-on-disk error.
 
 ### Passwords
 mpm reads a repository's password from the `MPM_PASSWORD` environment variable if set (useful for scripts and tests), otherwise from a hidden prompt on the terminal.  It errors if neither is available.  Passwords are never accepted as command line arguments.  `MPM_PASSWORD` is not passed to child processes (openssl gets the password on a private pipe; editors, clipboard tools and helpers never see it).  A password is cached in memory for the life of the process only (the TUI asks once per repository until it exits).

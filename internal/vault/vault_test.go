@@ -2,10 +2,13 @@ package vault
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/kjhaber/mpm/internal/crypt"
 )
@@ -216,8 +219,10 @@ func TestSaveLeavesNoTempFiles(t *testing.T) {
 	h := mustCreateOpen(t, s, "web")
 	_ = h.Save()
 	entries, _ := os.ReadDir(s.Root)
-	if len(entries) != 1 || entries[0].Name() != "web.enc" {
-		t.Fatalf("entries: %v", entries)
+	for _, e := range entries {
+		if n := e.Name(); n != "web.enc" && n != ".web.lock" {
+			t.Fatalf("unexpected leftover %q in %v", n, entries)
+		}
 	}
 	fi, _ := os.Stat(filepath.Join(s.Root, "web.enc"))
 	if fi.Mode().Perm() != 0o600 {
@@ -420,5 +425,59 @@ func TestSetPatternRejectedWhenExistingSecretsViolateIt(t *testing.T) {
 	}
 	if err := r.SetAttrib("pin", "pattern", "[0-9]+"); err != nil {
 		t.Fatalf("all secrets match now: %v", err)
+	}
+}
+
+func TestConcurrentSavesDoNotLoseUpdates(t *testing.T) {
+	s := newStore(t)
+	mustCreateOpen(t, s, "web")
+	orig := syncFile
+	syncFile = func(f *os.File) error { time.Sleep(30 * time.Millisecond); return f.Sync() }
+	t.Cleanup(func() { syncFile = orig })
+
+	const n = 6
+	handles := make([]*Handle, n)
+	for i := range handles {
+		h, err := s.Open("web", "pw")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Repo.AddField(fmt.Sprintf("f%d", i)); err != nil {
+			t.Fatal(err)
+		}
+		handles[i] = h
+	}
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i, h := range handles {
+		wg.Add(1)
+		go func() { defer wg.Done(); errs[i] = h.Save() }()
+	}
+	wg.Wait()
+	ok := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case !errors.Is(err, ErrChangedOnDisk):
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("%d saves succeeded, want exactly 1 (the rest must see ErrChangedOnDisk)", ok)
+	}
+}
+
+func TestDeleteRemovesLockFile(t *testing.T) {
+	s := newStore(t)
+	h := mustCreateOpen(t, s, "web")
+	if err := h.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete("web", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(s.Root); len(entries) != 0 {
+		t.Fatalf("leftovers after delete: %v", entries)
 	}
 }

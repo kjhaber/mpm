@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/kjhaber/mpm/internal/crypt"
 )
@@ -122,6 +123,11 @@ func (h *Handle) Save() error {
 	if err != nil {
 		return err
 	}
+	unlock, err := h.store.lock(h.name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	cur, err := os.ReadFile(p)
 	if err != nil {
 		return err
@@ -140,6 +146,24 @@ func (h *Handle) Save() error {
 	return nil
 }
 
+// lock takes an exclusive advisory lock on a per-repository lock file (not the
+// repository file itself, which every save replaces) so the changed-on-disk
+// check and the write happen as one step across processes.
+func (s *Store) lock(name string) (unlock func(), err error) {
+	if err := os.MkdirAll(s.Root, 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(s.Root, "."+name+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil
+}
+
 // Delete removes an empty repository after verifying its password.
 func (s *Store) Delete(name, password string) error {
 	h, err := s.Open(name, password)
@@ -150,7 +174,11 @@ func (s *Store) Delete(name, password string) error {
 		return ErrRepoNotEmpty
 	}
 	p, _ := s.path(name)
-	return os.Remove(p)
+	if err := os.Remove(p); err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Join(s.Root, "."+name+".lock"))
+	return nil
 }
 
 // Copy creates repository to as a copy of from (fields, and optionally secrets) under a new password.
