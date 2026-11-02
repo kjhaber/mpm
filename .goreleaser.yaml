@@ -1,0 +1,61 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - mkdir -p build/completions
+    - sh -c 'go run ./cmd/mpm completion zsh > build/completions/_mpm'
+    - sh -c 'go run ./cmd/mpm completion bash > build/completions/mpm.bash'
+    - sh -c 'go run ./cmd/mpm completion fish > build/completions/mpm.fish'
+
+builds:
+  - main: ./cmd/mpm
+    binary: mpm
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "mpm_{{.Version}}_{{.Os}}_{{.Arch}}"
+    files:
+      - src: build/completions/*
+        dst: completions/
+        strip_parent: true
+
+brews:
+  - name: mpm
+    directory: Formula
+    repository:
+      owner: kjhaber
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/kjhaber/mpm
+    description: "My Password Manager — encrypted secrets CLI/TUI"
+    license: MIT
+    install: |
+      bin.install "mpm"
+      bash_completion.install "completions/mpm.bash"
+      zsh_completion.install "completions/_mpm"
+      fish_completion.install "completions/mpm.fish"
+    test: |
+      system "#{bin}/mpm", "--version"
+
+checksum:
+  name_template: "mpm_{{.Version}}_checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
