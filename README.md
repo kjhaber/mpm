@@ -67,6 +67,7 @@ Secret repositories include a set of fields to be tracked per secret.  For examp
 mpm field list --repo <repo-name>
 mpm field create --repo <repo-name> --field <field-name>
 mpm field show --repo <repo-name> --field <field-name>
+mpm field move --repo <repo-name> --field <field-name> [--before <other-field-name>]
 mpm field list-attribs --repo <repo-name> --field <field-name>
 mpm field get-attrib --repo <repo-name> --field <field-name> --attrib <attribute-name>
 mpm field set-attrib --repo <repo-name> --field <field-name> --attrib <attribute-name> --value <attribute-value>
@@ -77,6 +78,8 @@ mpm field delete --repo <repo-name> --field <field-name>
 Valid attribute names:
 * `required`. Valid values are "true" or "false" (case-sensitive). Default is false.
 * `pattern`. Regex pattern (RE2) that secret field value must match.  Default is `.+` (match any non-empty string).
+
+Fields are listed, prompted for and shown in repository order.  `field move` puts a field immediately before `--before` (or at the end when `--before` is omitted), e.g. to put `cardholder-name` above `card-number`.  In the TUI use "U"/"D" on the repository fields screen (not while a filter is applied).
 
 (Later mpm may support a "type" attribute with some pre-defined regex patterns, e.g. "numeric" for `[0-9]+`.)
 
@@ -111,7 +114,7 @@ TUI interface has following "screens":
   - <ESC> to exit TUI
   - "N" to create new repository
   - "X" to delete repository (if no secrets in repository)
-  - "F" to enter repository fields to show/modify repository's fields (on that screen: "N" add field, "X" delete field, "R" toggle required, "P" set regex pattern)
+  - "F" to enter repository fields to show/modify repository's fields (on that screen: "N" add field, "X" delete field, "U"/"D" move field up/down, "R" toggle required, "P" set regex pattern)
   - "/" to filter list (fuzzy search)
   - "Q" or <Ctrl-C> to exit TUI
 

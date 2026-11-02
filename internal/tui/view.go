@@ -40,7 +40,7 @@ func (m *Model) hints() string {
 	case screenFields:
 		return "enter/s show · c copy · e edit · / filter · esc back · q quit"
 	case screenRepoFields:
-		return "n new · x delete · r toggle required · p pattern · esc back · q quit"
+		return "n new · x delete · u/d move · r toggle required · p pattern · esc back · q quit"
 	}
 	return "enter open · n new · x delete · f fields · / filter · esc quit · q quit"
 }

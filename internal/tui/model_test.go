@@ -588,3 +588,55 @@ func TestTitleNeutralisesControlCharactersInSecretName(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func fieldNamesOf(r *vault.Repo) string {
+	var out []string
+	for _, f := range r.Fields {
+		out = append(out, f.Name)
+	}
+	return strings.Join(out, ",")
+}
+
+func TestRepoFieldsReorderWithUAndD(t *testing.T) {
+	e := newEnv(t)
+	e.seed() // fields: user, pass
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{})
+	press(m, k("f"))
+	press(m, tea.KeyMsg{Type: tea.KeyDown}, k("u")) // pass up
+	if got := fieldNamesOf(e.repoOf("web")); got != "pass,user" {
+		t.Fatalf("after u: %s", got)
+	}
+	if m.selected() != "pass" {
+		t.Fatalf("cursor should follow the moved field, on %q", m.selected())
+	}
+	press(m, k("d"))
+	if got := fieldNamesOf(e.repoOf("web")); got != "user,pass" {
+		t.Fatalf("after d: %s", got)
+	}
+	if m.selected() != "pass" {
+		t.Fatalf("cursor should follow the moved field, on %q", m.selected())
+	}
+	press(m, k("d")) // already last: no change, no error
+	if got := fieldNamesOf(e.repoOf("web")); got != "user,pass" {
+		t.Fatalf("d at bottom: %s", got)
+	}
+	press(m, k("u"), k("u")) // pass to top, then no-op
+	if got := fieldNamesOf(e.repoOf("web")); got != "pass,user" {
+		t.Fatalf("u at top: %s", got)
+	}
+}
+
+func TestRepoFieldsReorderRefusedWhileFiltering(t *testing.T) {
+	e := newEnv(t)
+	e.seed()
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{})
+	press(m, k("f"), k("/"))
+	typ(m, "pass")
+	press(m, enter, k("u"))
+	mustContain(t, m, "filter")
+	if got := fieldNamesOf(e.repoOf("web")); got != "user,pass" {
+		t.Fatalf("order changed under a filter: %s", got)
+	}
+}

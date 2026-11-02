@@ -76,6 +76,40 @@ func (r *Repo) DeleteField(name string) error {
 	return fmt.Errorf("field %q: %w", name, ErrNotFound)
 }
 
+// MoveField moves a field so it sits immediately before the field named before,
+// or at the end when before is empty. Attributes and stored values are untouched;
+// field order only changes display and prompt order.
+func (r *Repo) MoveField(name, before string) error {
+	from := -1
+	for i, f := range r.Fields {
+		if f.Name == name {
+			from = i
+		}
+	}
+	if from < 0 {
+		return fmt.Errorf("field %q: %w", name, ErrNotFound)
+	}
+	if before == name {
+		return fmt.Errorf("cannot move field %q before itself", name)
+	}
+	moved := r.Fields[from]
+	rest := append(append([]Field{}, r.Fields[:from]...), r.Fields[from+1:]...)
+	at := len(rest)
+	if before != "" {
+		at = -1
+		for i, f := range rest {
+			if f.Name == before {
+				at = i
+			}
+		}
+		if at < 0 {
+			return fmt.Errorf("field %q: %w", before, ErrNotFound)
+		}
+	}
+	r.Fields = append(rest[:at], append([]Field{moved}, rest[at:]...)...)
+	return nil
+}
+
 // AttribNames lists the valid field attribute names.
 func AttribNames() []string { return []string{"required", "pattern"} }
 

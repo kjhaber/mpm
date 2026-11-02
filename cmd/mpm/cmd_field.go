@@ -130,6 +130,15 @@ func (a *app) fieldCmd() *cobra.Command {
 		},
 	}, true, false, false)
 
-	field.AddCommand(list, create, show, listAttribs, getAttrib, setAttrib, deleteAttrib, del)
+	var before string
+	move := common(&cobra.Command{
+		Use: "move", Short: "Move a field before another field (or to the end)",
+		RunE: func(*cobra.Command, []string) error {
+			return a.modify(repo, func(r *vault.Repo) error { return r.MoveField(name, before) })
+		},
+	}, true, false, false)
+	move.Flags().StringVar(&before, "before", "", "field to move in front of (default: move to the end)")
+
+	field.AddCommand(list, create, show, move, listAttribs, getAttrib, setAttrib, deleteAttrib, del)
 	return field
 }

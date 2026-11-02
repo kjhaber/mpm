@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -309,6 +310,36 @@ func (m *Model) finishEdit(editErr error) {
 
 // --- repository fields screen ---
 
+// moveSelectedField shifts the selected field one place up or down and keeps the
+// cursor on it. It does nothing at either end, and is refused under a filter
+// because the visible order is then by match score rather than field order.
+func (m *Model) moveSelectedField(sel string, up bool) {
+	if sel == "" {
+		return
+	}
+	if m.query != "" {
+		m.msg = "clear the filter to reorder fields"
+		return
+	}
+	i := slices.Index(m.items, sel)
+	var before string
+	switch {
+	case up && i > 0:
+		before = m.items[i-1]
+	case !up && i >= 0 && i < len(m.items)-2:
+		before = m.items[i+2]
+	case !up && i == len(m.items)-2:
+		before = ""
+	default:
+		return
+	}
+	if m.mutate(func(r *vault.Repo) error { return r.MoveField(sel, before) }) {
+		if j := slices.Index(m.items, sel); j >= 0 {
+			m.cursor = j
+		}
+	}
+}
+
 func (m *Model) repoFieldsKey(key string) {
 	sel := m.selected()
 	switch key {
@@ -324,6 +355,8 @@ func (m *Model) repoFieldsKey(key string) {
 				m.mutate(func(r *vault.Repo) error { return r.DeleteField(sel) })
 			})
 		}
+	case "u", "d":
+		m.moveSelectedField(sel, key == "u")
 	case "r":
 		if sel != "" {
 			m.mutate(func(r *vault.Repo) error {

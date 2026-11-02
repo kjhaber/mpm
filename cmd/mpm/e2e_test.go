@@ -364,3 +364,26 @@ func TestEditorCommandDisablesVimHistoryFiles(t *testing.T) {
 		t.Fatalf("other editors are left alone: %q", cmd.Args)
 	}
 }
+
+func TestFieldMoveReordersSecretOutput(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "cards")
+	for _, f := range []string{"card-number", "expiry", "cardholder-name"} {
+		e.must("field", "create", "--repo", "cards", "--field", f)
+	}
+	e.must("secret", "create", "--repo", "cards", "--secret", "visa",
+		"--value", "card-number:4111,expiry:12/30,cardholder-name:A B")
+	e.must("field", "move", "--repo", "cards", "--field", "cardholder-name", "--before", "card-number")
+	if got := e.must("field", "list", "--repo", "cards"); got != "cardholder-name\ncard-number\nexpiry\n" {
+		t.Fatalf("list: %q", got)
+	}
+	if got := e.must("secret", "show", "--repo", "cards", "--secret", "visa"); got != "cardholder-name: A B\ncard-number: 4111\nexpiry: 12/30\n" {
+		t.Fatalf("show: %q", got)
+	}
+	e.must("field", "move", "--repo", "cards", "--field", "cardholder-name") // no --before: to the end
+	if got := e.must("field", "list", "--repo", "cards"); got != "card-number\nexpiry\ncardholder-name\n" {
+		t.Fatalf("list after move to end: %q", got)
+	}
+	_ = e.mustFail("field", "move", "--repo", "cards", "--field", "nope")
+	_ = e.mustFail("field", "move", "--repo", "cards", "--field", "expiry", "--before", "nope")
+}
