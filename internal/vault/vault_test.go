@@ -339,3 +339,20 @@ func TestSafeNameReplacesControlCharacters(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// garbageCrypter simulates openssl accepting a wrong password by chance
+// (valid CBC padding), which yields undecodable plaintext instead of an error.
+type garbageCrypter struct{ fakeCrypter }
+
+func (garbageCrypter) Decrypt(string, []byte) ([]byte, error) { return []byte("\xf4\x8a garbage"), nil }
+
+func TestOpenTreatsUndecodablePlaintextAsBadPassword(t *testing.T) {
+	s := newStore(t)
+	if err := s.Create("web", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	s.Crypter = garbageCrypter{}
+	if _, err := s.Open("web", "wrong"); !errors.Is(err, crypt.ErrBadPassword) {
+		t.Fatalf("got %v", err)
+	}
+}

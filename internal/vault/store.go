@@ -106,7 +106,9 @@ func (s *Store) Open(name, password string) (*Handle, error) {
 	}
 	r := newRepo()
 	if err := json.Unmarshal(plain, r); err != nil {
-		return nil, fmt.Errorf("repository %q: corrupt content: %w", name, err)
+		// A wrong password passes openssl's padding check about 1 time in 256 and
+		// yields garbage, so undecodable plaintext is reported like any bad password.
+		return nil, fmt.Errorf("repository %q: %w", name, crypt.ErrBadPassword)
 	}
 	if r.Secrets == nil {
 		r.Secrets = map[string]map[string]string{}
