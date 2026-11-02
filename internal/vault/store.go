@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/kjhaber/mpm/internal/crypt"
 )
@@ -21,7 +22,8 @@ var syncFile = func(f *os.File) error { return f.Sync() }
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._ -]*$`)
 
-func validateName(name string) error {
+// ValidateName reports whether name is usable as a repository name.
+func ValidateName(name string) error {
 	if !nameRE.MatchString(name) {
 		return fmt.Errorf("invalid name %q (letters, digits, space, . _ - ; must start with a letter or digit)", name)
 	}
@@ -45,7 +47,7 @@ type Handle struct {
 }
 
 func (s *Store) path(name string) (string, error) {
-	if err := validateName(name); err != nil {
+	if err := ValidateName(name); err != nil {
 		return "", fmt.Errorf("repository name: %w", err)
 	}
 	return filepath.Join(s.Root, name+".enc"), nil
@@ -105,7 +107,9 @@ func (s *Store) Open(name, password string) (*Handle, error) {
 	}
 	r := newRepo()
 	if err := json.Unmarshal(plain, r); err != nil {
-		return nil, fmt.Errorf("repository %q: corrupt content: %w", name, err)
+		// A wrong password passes openssl's padding check about 1 time in 256 and
+		// yields garbage, so undecodable plaintext is reported like any bad password.
+		return nil, fmt.Errorf("repository %q: %w", name, crypt.ErrBadPassword)
 	}
 	if r.Secrets == nil {
 		r.Secrets = map[string]map[string]string{}
@@ -119,6 +123,11 @@ func (h *Handle) Save() error {
 	if err != nil {
 		return err
 	}
+	unlock, err := h.store.lock(h.name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	cur, err := os.ReadFile(p)
 	if err != nil {
 		return err
@@ -137,6 +146,24 @@ func (h *Handle) Save() error {
 	return nil
 }
 
+// lock takes an exclusive advisory lock on a per-repository lock file (not the
+// repository file itself, which every save replaces) so the changed-on-disk
+// check and the write happen as one step across processes.
+func (s *Store) lock(name string) (unlock func(), err error) {
+	if err := os.MkdirAll(s.Root, 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(s.Root, "."+name+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil
+}
+
 // Delete removes an empty repository after verifying its password.
 func (s *Store) Delete(name, password string) error {
 	h, err := s.Open(name, password)
@@ -147,7 +174,11 @@ func (s *Store) Delete(name, password string) error {
 		return ErrRepoNotEmpty
 	}
 	p, _ := s.path(name)
-	return os.Remove(p)
+	if err := os.Remove(p); err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Join(s.Root, "."+name+".lock"))
+	return nil
 }
 
 // Copy creates repository to as a copy of from (fields, and optionally secrets) under a new password.
@@ -190,7 +221,12 @@ func (s *Store) write(path string, r *Repo, password string) error {
 	if err := os.MkdirAll(s.Root, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(s.Root, ".mpm-tmp-*")
+	// Write through a symlinked repository file (e.g. managed by stow) instead of replacing the link.
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".mpm-tmp-*")
 	if err != nil {
 		return err
 	}
@@ -213,7 +249,7 @@ func (s *Store) write(path string, r *Repo, password string) error {
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return err
 	}
-	return syncDir(s.Root)
+	return syncDir(dir)
 }
 
 // syncDir fsyncs a directory so a rename into it survives a crash.

@@ -8,12 +8,26 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/kjhaber/mpm/internal/childenv"
 )
 
 // ErrBadPassword is returned when decryption fails (wrong password or corrupt data).
 var ErrBadPassword = errors.New("wrong password or corrupt data")
+
+// ErrInvalidPassword is returned for passwords openssl would silently
+// truncate (it reads one line of under 1024 bytes from the password fd).
+var ErrInvalidPassword = errors.New("password must be under 1024 bytes and contain no newline")
+
+const maxPasswordLen = 1023
+
+func checkPassword(password string) error {
+	if len(password) > maxPasswordLen || strings.ContainsAny(password, "\r\n") {
+		return ErrInvalidPassword
+	}
+	return nil
+}
 
 // Crypter encrypts and decrypts byte slices with a password.
 type Crypter interface {
@@ -37,7 +51,7 @@ func (opensslCrypter) Encrypt(password string, plaintext []byte) ([]byte, error)
 func (opensslCrypter) Decrypt(password string, ciphertext []byte) ([]byte, error) {
 	out, err := run(password, ciphertext, true)
 	if err != nil {
-		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		if strings.Contains(err.Error(), "bad decrypt") {
 			return nil, ErrBadPassword
 		}
 		return nil, fmt.Errorf("decrypting: %w", err)
@@ -45,7 +59,21 @@ func (opensslCrypter) Decrypt(password string, ciphertext []byte) ([]byte, error
 	return out, nil
 }
 
+// message prefers openssl's own stderr text over a bare exit status.
+func message(stderr string, err error) string {
+	if s := strings.TrimSpace(stderr); s != "" {
+		if len(s) > 500 {
+			s = s[:500]
+		}
+		return s
+	}
+	return err.Error()
+}
+
 func run(password string, in []byte, decrypt bool) ([]byte, error) {
+	if err := checkPassword(password); err != nil {
+		return nil, err
+	}
 	path, err := exec.LookPath("openssl")
 	if err != nil {
 		return nil, errors.New("openssl not found on PATH (brew install openssl)")
@@ -68,15 +96,17 @@ func run(password string, in []byte, decrypt bool) ([]byte, error) {
 	cmd.ExtraFiles = []*os.File{pr}
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		_ = pw.Close()
 		return nil, err
 	}
-	// The password is small enough to fit in the pipe buffer, so this won't block.
+	// checkPassword keeps the password far below the pipe buffer, so this won't block.
 	_, werr := pw.WriteString(password + "\n")
 	_ = pw.Close()
 	if err := cmd.Wait(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openssl: %s", message(stderr.String(), err))
 	}
 	if werr != nil {
 		return nil, werr

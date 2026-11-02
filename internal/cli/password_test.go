@@ -2,7 +2,10 @@ package cli
 
 import (
 	"errors"
+	"os"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -65,4 +68,33 @@ func TestGetNewMatchAndEnv(t *testing.T) {
 	if got, err := p.GetNew("r"); err != nil || got != "e" {
 		t.Fatalf("%q %v", got, err)
 	}
+}
+
+func TestGuardTerminalRestoresThenReraisesOnInterrupt(t *testing.T) {
+	restored := make(chan struct{})
+	reraised := make(chan os.Signal, 1)
+	stop := guardTerminal(func() { close(restored) }, func(s os.Signal) { reraised <- s })
+	defer stop()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-restored:
+	case <-time.After(2 * time.Second):
+		t.Fatal("terminal was not restored")
+	}
+	select {
+	case s := <-reraised:
+		if s != syscall.SIGINT {
+			t.Fatalf("reraised %v", s)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("signal was not re-raised")
+	}
+}
+
+func TestGuardTerminalStopDisarms(t *testing.T) {
+	stop := guardTerminal(func() { t.Error("restore ran after stop") }, func(os.Signal) { t.Error("reraised after stop") })
+	stop()
+	time.Sleep(50 * time.Millisecond)
 }

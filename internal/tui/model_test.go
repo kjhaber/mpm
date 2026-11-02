@@ -568,3 +568,24 @@ func TestCopyWithUnclearableClipboardWarns(t *testing.T) {
 		t.Fatalf("no clear helper should be spawned: %v", e.spawned)
 	}
 }
+
+func TestParseEditRejectsDuplicateFields(t *testing.T) {
+	_, err := parseEdit("a: 1\nb: 2\na: 3\n", []string{"a", "b"})
+	if err == nil || !strings.Contains(err.Error(), "line 3") || !strings.Contains(err.Error(), "more than once") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRowNeutralisesControlCharactersInNames(t *testing.T) {
+	m := &Model{screen: screenSecrets}
+	if got := m.row("evil\x1b[2Jname"); strings.Contains(got, "\x1b") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTitleNeutralisesControlCharactersInSecretName(t *testing.T) {
+	m := &Model{screen: screenFields, repo: "web", secret: "evil\x1b[2J"}
+	if got := m.title(); strings.Contains(got, "\x1b") {
+		t.Fatalf("got %q", got)
+	}
+}

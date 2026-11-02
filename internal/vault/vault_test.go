@@ -2,10 +2,13 @@ package vault
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/kjhaber/mpm/internal/crypt"
 )
@@ -216,8 +219,10 @@ func TestSaveLeavesNoTempFiles(t *testing.T) {
 	h := mustCreateOpen(t, s, "web")
 	_ = h.Save()
 	entries, _ := os.ReadDir(s.Root)
-	if len(entries) != 1 || entries[0].Name() != "web.enc" {
-		t.Fatalf("entries: %v", entries)
+	for _, e := range entries {
+		if n := e.Name(); n != "web.enc" && n != ".web.lock" {
+			t.Fatalf("unexpected leftover %q in %v", n, entries)
+		}
 	}
 	fi, _ := os.Stat(filepath.Join(s.Root, "web.enc"))
 	if fi.Mode().Perm() != 0o600 {
@@ -314,5 +319,165 @@ func TestSaveSyncsFileAndDirectoryBeforeReturning(t *testing.T) {
 	}
 	if calls < 2 {
 		t.Fatalf("expected temp file and directory fsync, got %d sync calls", calls)
+	}
+}
+
+func TestSecretNamesRejectControlCharacters(t *testing.T) {
+	r := &Repo{}
+	for _, name := range []string{"a\nb", "a\x1b[2Jb", "tab\there", "bell\a", "del\x7f", "c1\u009bx"} {
+		if err := r.SetSecret(name, nil); err == nil {
+			t.Errorf("%q should be rejected", name)
+		}
+	}
+	for _, name := range []string{"github", "my bank (old)", "ünïcode 🔐", "a/b"} {
+		if err := r.SetSecret(name, nil); err != nil {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
+func TestSafeNameReplacesControlCharacters(t *testing.T) {
+	if got := SafeName("a\x1b[2Jb\nc"); got != "a?[2Jb?c" {
+		t.Fatalf("got %q", got)
+	}
+	if got := SafeName("plain ünï"); got != "plain ünï" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// garbageCrypter simulates openssl accepting a wrong password by chance
+// (valid CBC padding), which yields undecodable plaintext instead of an error.
+type garbageCrypter struct{ fakeCrypter }
+
+func (garbageCrypter) Decrypt(string, []byte) ([]byte, error) { return []byte("\xf4\x8a garbage"), nil }
+
+func TestOpenTreatsUndecodablePlaintextAsBadPassword(t *testing.T) {
+	s := newStore(t)
+	if err := s.Create("web", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	s.Crypter = garbageCrypter{}
+	if _, err := s.Open("web", "wrong"); !errors.Is(err, crypt.ErrBadPassword) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestSavePreservesSymlinkedRepoFile(t *testing.T) {
+	s := newStore(t)
+	mustCreateOpen(t, s, "web")
+	link := filepath.Join(s.Root, "web.enc")
+	targetDir := t.TempDir()
+	target := filepath.Join(targetDir, "web.enc")
+	if err := os.Rename(link, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	h, err := s.Open("web", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Repo.AddField("user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink was replaced: %v %v", fi, err)
+	}
+	h2, err := s.Open("web", "pw")
+	if err != nil || len(h2.Repo.Fields) != 1 {
+		t.Fatalf("saved data not visible through the link: %v %v", h2, err)
+	}
+	if got, _ := os.ReadFile(target); !strings.Contains(string(got), "user") {
+		t.Fatalf("target not updated: %q", got)
+	}
+	entries, _ := os.ReadDir(targetDir)
+	if len(entries) != 1 {
+		t.Fatalf("stray temp files next to target: %v", entries)
+	}
+}
+
+func TestSetPatternRejectedWhenExistingSecretsViolateIt(t *testing.T) {
+	r := &Repo{}
+	if err := r.AddField("pin"); err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string]string{"bank": "1234", "gym": "abcd", "club": "9"} {
+		if err := r.SetSecret(name, map[string]string{"pin": v}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := r.SetAttrib("pin", "pattern", "[0-9]+")
+	if !errors.Is(err, ErrPatternViolated) {
+		t.Fatalf("got %v", err)
+	}
+	if !strings.Contains(err.Error(), "gym") || strings.Contains(err.Error(), "abcd") {
+		t.Fatalf("error should name the offending secret but not echo values: %v", err)
+	}
+	if got, _ := r.GetAttrib("pin", "pattern"); got != ".+" {
+		t.Fatalf("pattern changed despite the error: %q", got)
+	}
+	if err := r.SetSecret("gym", map[string]string{"pin": "5678"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetAttrib("pin", "pattern", "[0-9]+"); err != nil {
+		t.Fatalf("all secrets match now: %v", err)
+	}
+}
+
+func TestConcurrentSavesDoNotLoseUpdates(t *testing.T) {
+	s := newStore(t)
+	mustCreateOpen(t, s, "web")
+	orig := syncFile
+	syncFile = func(f *os.File) error { time.Sleep(30 * time.Millisecond); return f.Sync() }
+	t.Cleanup(func() { syncFile = orig })
+
+	const n = 6
+	handles := make([]*Handle, n)
+	for i := range handles {
+		h, err := s.Open("web", "pw")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Repo.AddField(fmt.Sprintf("f%d", i)); err != nil {
+			t.Fatal(err)
+		}
+		handles[i] = h
+	}
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i, h := range handles {
+		wg.Add(1)
+		go func() { defer wg.Done(); errs[i] = h.Save() }()
+	}
+	wg.Wait()
+	ok := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case !errors.Is(err, ErrChangedOnDisk):
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("%d saves succeeded, want exactly 1 (the rest must see ErrChangedOnDisk)", ok)
+	}
+}
+
+func TestDeleteRemovesLockFile(t *testing.T) {
+	s := newStore(t)
+	h := mustCreateOpen(t, s, "web")
+	if err := h.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete("web", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(s.Root); len(entries) != 0 {
+		t.Fatalf("leftovers after delete: %v", entries)
 	}
 }

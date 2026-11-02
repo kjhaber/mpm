@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
+	"unicode"
 )
 
 var (
@@ -13,6 +16,7 @@ var (
 	ErrExists              = errors.New("already exists")
 	ErrNotFound            = errors.New("not found")
 	ErrRequiredWithSecrets = errors.New("cannot make a field required while the repository contains secrets")
+	ErrPatternViolated     = errors.New("existing secrets do not match the new pattern")
 )
 
 const defaultPattern = ".+"
@@ -48,7 +52,7 @@ func (r *Repo) field(name string) (*Field, error) {
 
 // AddField adds an optional field with the default pattern.
 func (r *Repo) AddField(name string) error {
-	if err := validateName(name); err != nil {
+	if err := ValidateName(name); err != nil {
 		return fmt.Errorf("field name: %w", err)
 	}
 	if _, err := r.field(name); err == nil {
@@ -91,14 +95,33 @@ func (r *Repo) SetAttrib(field, attrib, value string) error {
 		}
 		f.Required = value == "true"
 	case "pattern":
-		if _, err := regexp.Compile(value); err != nil {
+		re, err := regexp.Compile("(?s)^(?:" + value + ")$")
+		if err != nil {
 			return fmt.Errorf("invalid pattern: %w", err)
+		}
+		if bad := r.violating(field, re); len(bad) > 0 {
+			return fmt.Errorf("%w: %s (fix or delete them first)", ErrPatternViolated, strings.Join(bad, ", "))
 		}
 		f.Pattern = value
 	default:
 		return fmt.Errorf("unknown attribute %q (valid: required, pattern)", attrib)
 	}
 	return nil
+}
+
+// violating lists (sorted, display-safe, capped) the secrets whose value for field does not match re.
+func (r *Repo) violating(field string, re *regexp.Regexp) []string {
+	var bad []string
+	for name, vals := range r.Secrets {
+		if v := vals[field]; v != "" && !re.MatchString(v) {
+			bad = append(bad, SafeName(name))
+		}
+	}
+	sort.Strings(bad)
+	if len(bad) > 5 {
+		bad = append(bad[:5], fmt.Sprintf("and %d more", len(bad)-5))
+	}
+	return bad
 }
 
 // GetAttrib returns a field attribute's effective value.
@@ -159,10 +182,24 @@ func (r *Repo) ValidateValues(values map[string]string) error {
 	return nil
 }
 
+// SafeName replaces control characters with "?" so a name read from a repository
+// file cannot inject terminal escape sequences or extra lines when printed.
+func SafeName(name string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, name)
+}
+
 // SetSecret creates or replaces a secret after validating its values.
 func (r *Repo) SetSecret(name string, values map[string]string) error {
 	if name == "" {
 		return errors.New("secret name must not be empty")
+	}
+	if strings.ContainsFunc(name, unicode.IsControl) {
+		return errors.New("secret name must not contain control characters")
 	}
 	if err := r.ValidateValues(values); err != nil {
 		return err

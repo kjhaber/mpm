@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -262,8 +263,12 @@ func TestTUIFlagValidation(t *testing.T) {
 
 func TestChildCommandsDoNotInheritPassword(t *testing.T) {
 	t.Setenv("MPM_PASSWORD", "hunter2")
+	editor, err := editorCommand(func(string) string { return "" }, "/tmp/x")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, cmd := range map[string]*exec.Cmd{
-		"editor":    editorCommand(func(string) string { return "" }, "/tmp/x"),
+		"editor":    editor,
 		"clipclear": clipclearCommand("/bin/mpm", 30*time.Second),
 	} {
 		for _, kv := range cmd.Env {
@@ -275,7 +280,7 @@ func TestChildCommandsDoNotInheritPassword(t *testing.T) {
 			t.Fatalf("%s command must set Env explicitly", name)
 		}
 	}
-	if got := editorCommand(func(string) string { return "  " }, "/tmp/x"); got.Args[0] != "vi" {
+	if got, err := editorCommand(func(string) string { return "  " }, "/tmp/x"); err != nil || got.Args[0] != "vi" {
 		t.Fatalf("blank $VISUAL should fall back to vi: %v", got.Args)
 	}
 }
@@ -293,5 +298,97 @@ func TestCopyWithUnclearableClipboardSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "\x1b]52;c;") {
 		t.Fatalf("OSC52 not written: %q", buf.String())
+	}
+}
+
+func TestInvalidRepoNameFailsBeforePrompting(t *testing.T) {
+	e := newTestEnv(t)
+	delete(e.vars, "MPM_PASSWORD") // no env password and no queued prompts: any prompt fails with "unexpected prompt"
+	for _, args := range [][]string{
+		{"repo", "create", "--repo", "../evil"},
+		{"repo", "copy", "--repo", "../evil", "--from", "web"},
+		{"repo", "copy", "--repo", "ok", "--from", "../evil"},
+		{"repo", "delete", "--repo", "../evil"},
+		{"repo", "show", "--repo", "../evil"},
+		{"secret", "list", "--repo", "../evil"},
+	} {
+		err := e.mustFail(args...)
+		if !strings.Contains(err.Error(), "invalid name") {
+			t.Errorf("mpm %s: got %v", strings.Join(args, " "), err)
+		}
+	}
+}
+
+func TestEditorCommandHonoursQuotedArguments(t *testing.T) {
+	env := func(k string) string {
+		if k == "VISUAL" {
+			return `"/opt/my ed/ed" --flag 'a b'`
+		}
+		return ""
+	}
+	cmd, err := editorCommand(env, "/tmp/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/opt/my ed/ed", "--flag", "a b", "/tmp/x"}
+	if !reflect.DeepEqual(cmd.Args, want) {
+		t.Fatalf("got %q want %q", cmd.Args, want)
+	}
+	if _, err := editorCommand(func(string) string { return `ed "oops` }, "/tmp/x"); err == nil {
+		t.Fatal("unterminated quote should error")
+	}
+}
+
+func TestSecretListNeutralisesControlCharactersInLegacyNames(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "web")
+	// A name from before names were restricted: plant it directly in the repo file.
+	st, err := e.a.store()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := st.Open("web", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Repo.Secrets = map[string]map[string]string{"evil\x1b[2J\nname": {}}
+	if err := h.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got := e.must("secret", "list", "--repo", "web")
+	if strings.ContainsAny(got, "\x1b") || got != "evil?[2J?name\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestEditorCommandDisablesVimHistoryFiles(t *testing.T) {
+	for _, ed := range []string{"vim", "/usr/local/bin/nvim", "vim -u NONE"} {
+		cmd, err := editorCommand(func(k string) string {
+			if k == "EDITOR" {
+				return ed
+			}
+			return ""
+		}, "/tmp/x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := " " + strings.Join(cmd.Args, " ") + " "
+		for _, want := range []string{" -n ", " -i NONE ", "noundofile", "nobackup", "nowritebackup"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("%s: missing %q in %q", ed, want, joined)
+			}
+		}
+		if cmd.Args[len(cmd.Args)-1] != "/tmp/x" {
+			t.Errorf("%s: path must be last: %q", ed, cmd.Args)
+		}
+	}
+	cmd, _ := editorCommand(func(k string) string {
+		if k == "EDITOR" {
+			return "code --wait"
+		}
+		return ""
+	}, "/tmp/x")
+	if want := []string{"code", "--wait", "/tmp/x"}; !reflect.DeepEqual(cmd.Args, want) {
+		t.Fatalf("other editors are left alone: %q", cmd.Args)
 	}
 }

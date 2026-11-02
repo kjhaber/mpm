@@ -2,6 +2,7 @@ package cli
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -53,5 +54,20 @@ func TestParseValueKeepsBackslashBeforeOtherCharacters(t *testing.T) {
 	}
 	if got["pw"] != `a\b\nc\d` || got["path"] != `C:\temp` {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestParseValueErrorsDoNotEchoValues(t *testing.T) {
+	for _, in := range []string{"hunter2", "user:me,hunter2", ":hunter2", "user:me,:hunter2,x:y", `user:hunter2\`} {
+		_, err := ParseValue(in)
+		if err == nil {
+			t.Fatalf("%q should error", in)
+		}
+		if strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("%q: error echoes the value: %v", in, err)
+		}
+	}
+	if _, err := ParseValue("user:me,hunter2"); err == nil || !strings.Contains(err.Error(), "entry 2") {
+		t.Errorf("error should name the entry position, got %v", err)
 	}
 }

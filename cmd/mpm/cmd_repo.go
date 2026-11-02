@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/kjhaber/mpm/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +42,9 @@ func (a *app) repoCmd() *cobra.Command {
 	create := &cobra.Command{
 		Use: "create", Short: "Create a repository", Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
+			if err := vault.ValidateName(createName); err != nil {
+				return err
+			}
 			st, err := a.store()
 			if err != nil {
 				return err
@@ -112,6 +116,11 @@ func (a *app) repoCmd() *cobra.Command {
 	cp := &cobra.Command{
 		Use: "copy", Short: "Copy a repository (fields, optionally secrets) under a new password", Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
+			for _, n := range []string{copyFrom, copyName} {
+				if err := vault.ValidateName(n); err != nil {
+					return err
+				}
+			}
 			st, err := a.store()
 			if err != nil {
 				return err

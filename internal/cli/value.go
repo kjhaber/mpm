@@ -34,13 +34,13 @@ func ParseValue(s string) (map[string]string, error) {
 	}
 	entries = append(entries, cur.String())
 
-	for _, e := range entries {
+	for i, e := range entries {
 		name, val, ok := splitEntry(e)
 		if !ok {
-			return nil, fmt.Errorf("invalid --value entry %q (want field:value)", e)
+			return nil, fmt.Errorf("invalid --value entry %d (want field:value)", i+1)
 		}
 		if name == "" {
-			return nil, fmt.Errorf("empty field name in --value entry %q", e)
+			return nil, fmt.Errorf("empty field name in --value entry %d", i+1)
 		}
 		if _, dup := out[name]; dup {
 			return nil, fmt.Errorf("field %q given more than once", name)

@@ -94,7 +94,7 @@ func (a *app) passwords() *cli.PasswordSource {
 // repoName resolves --repo, falling back to the default repository setting.
 func (a *app) repoName(flag string) (string, error) {
 	if flag != "" {
-		return flag, nil
+		return flag, vault.ValidateName(flag)
 	}
 	s, err := a.settings()
 	if err != nil {
@@ -103,7 +103,7 @@ func (a *app) repoName(flag string) (string, error) {
 	if s.Repo == "" {
 		return "", errors.New("no repository given: pass --repo or set MPM_REPO / the default repository setting")
 	}
-	return s.Repo, nil
+	return s.Repo, vault.ValidateName(s.Repo)
 }
 
 // format resolves --format, falling back to the default format setting.
