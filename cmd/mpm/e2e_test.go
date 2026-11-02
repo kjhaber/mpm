@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -262,8 +263,12 @@ func TestTUIFlagValidation(t *testing.T) {
 
 func TestChildCommandsDoNotInheritPassword(t *testing.T) {
 	t.Setenv("MPM_PASSWORD", "hunter2")
+	editor, err := editorCommand(func(string) string { return "" }, "/tmp/x")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, cmd := range map[string]*exec.Cmd{
-		"editor":    editorCommand(func(string) string { return "" }, "/tmp/x"),
+		"editor":    editor,
 		"clipclear": clipclearCommand("/bin/mpm", 30*time.Second),
 	} {
 		for _, kv := range cmd.Env {
@@ -275,7 +280,7 @@ func TestChildCommandsDoNotInheritPassword(t *testing.T) {
 			t.Fatalf("%s command must set Env explicitly", name)
 		}
 	}
-	if got := editorCommand(func(string) string { return "  " }, "/tmp/x"); got.Args[0] != "vi" {
+	if got, err := editorCommand(func(string) string { return "  " }, "/tmp/x"); err != nil || got.Args[0] != "vi" {
 		t.Fatalf("blank $VISUAL should fall back to vi: %v", got.Args)
 	}
 }
@@ -311,5 +316,25 @@ func TestInvalidRepoNameFailsBeforePrompting(t *testing.T) {
 		if !strings.Contains(err.Error(), "invalid name") {
 			t.Errorf("mpm %s: got %v", strings.Join(args, " "), err)
 		}
+	}
+}
+
+func TestEditorCommandHonoursQuotedArguments(t *testing.T) {
+	env := func(k string) string {
+		if k == "VISUAL" {
+			return `"/opt/my ed/ed" --flag 'a b'`
+		}
+		return ""
+	}
+	cmd, err := editorCommand(env, "/tmp/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/opt/my ed/ed", "--flag", "a b", "/tmp/x"}
+	if !reflect.DeepEqual(cmd.Args, want) {
+		t.Fatalf("got %q want %q", cmd.Args, want)
+	}
+	if _, err := editorCommand(func(string) string { return `ed "oops` }, "/tmp/x"); err == nil {
+		t.Fatal("unterminated quote should error")
 	}
 }

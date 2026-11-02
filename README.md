@@ -126,7 +126,7 @@ TUI interface has following "screens":
   - <ESC> to return to Secret selection
   - "C" to copy selected field value to clipboard
   - <Enter> or "S" to show selected field value on screen (it is hidden again after a few seconds)
-  - "E" to edit secret in `$EDITOR` (the secret is written as `field: value` lines to a private temp file that is removed afterward; values are validated on save; a backslash or newline inside a value appears as `\\` or `\n`)
+  - "E" to edit secret in `$EDITOR` (`$VISUAL` is tried first; arguments may be quoted like in a shell, e.g. `EDITOR="code --wait"`; the secret is written as `field: value` lines to a private temp file that is removed afterward; values are validated on save; a backslash or newline inside a value appears as `\\` or `\n`)
   - "Q" or <Ctrl-C> to exit TUI
 
 In general <Enter> key drills down toward secret value, and <ESC> key steps back out a level.  Arrows move up and down the list.  Pressing <ESC> enough times will exit out of the program.  "Q" and <Ctrl-C> will immediately exit from the program.

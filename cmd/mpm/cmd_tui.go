@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kjhaber/mpm/internal/childenv"
+	"github.com/kjhaber/mpm/internal/cli"
 	"github.com/kjhaber/mpm/internal/config"
 	"github.com/kjhaber/mpm/internal/tui"
 )
@@ -76,13 +78,17 @@ func (a *app) tuiCmd() *cobra.Command {
 // runEditor suspends the TUI and runs $VISUAL/$EDITOR (default vi) on path.
 func runEditor(env func(string) string) func(string, func(error) tea.Msg) tea.Cmd {
 	return func(path string, done func(error) tea.Msg) tea.Cmd {
-		return tea.ExecProcess(editorCommand(env, path), func(err error) tea.Msg { return done(err) })
+		c, err := editorCommand(env, path)
+		if err != nil {
+			return func() tea.Msg { return done(err) }
+		}
+		return tea.ExecProcess(c, func(err error) tea.Msg { return done(err) })
 	}
 }
 
 // editorCommand builds the $VISUAL/$EDITOR command (default vi) for path,
 // without MPM_PASSWORD in its environment.
-func editorCommand(env func(string) string, path string) *exec.Cmd {
+func editorCommand(env func(string) string, path string) (*exec.Cmd, error) {
 	editor := strings.TrimSpace(env("VISUAL"))
 	if editor == "" {
 		editor = strings.TrimSpace(env("EDITOR"))
@@ -90,8 +96,11 @@ func editorCommand(env func(string) string, path string) *exec.Cmd {
 	if editor == "" {
 		editor = "vi"
 	}
-	parts := strings.Fields(editor)
+	parts, err := cli.SplitWords(editor)
+	if err != nil || len(parts) == 0 {
+		return nil, fmt.Errorf("cannot parse editor %q (check $VISUAL / $EDITOR)", editor)
+	}
 	cmd := exec.Command(parts[0], append(parts[1:], path)...)
 	cmd.Env = childenv.Env()
-	return cmd
+	return cmd, nil
 }
