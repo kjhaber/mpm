@@ -247,3 +247,13 @@ func TestClipclear(t *testing.T) {
 		t.Fatalf("should leave changed clipboard, got %q", e.clip.val)
 	}
 }
+
+func TestTUIFlagValidation(t *testing.T) {
+	e := newTestEnv(t)
+	if err := e.mustFail("tui", "--secret", "x"); !strings.Contains(err.Error(), "--repo") {
+		t.Fatalf("got %v", err)
+	}
+	if err := e.mustFail("tui", "--resume", "--repo", "r"); !strings.Contains(err.Error(), "--resume") {
+		t.Fatalf("got %v", err)
+	}
+}
