@@ -59,7 +59,7 @@ func run(password string, in []byte, decrypt bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer pr.Close()
+	defer func() { _ = pr.Close() }()
 
 	cmd := exec.Command(path, args...)
 	cmd.Stdin = bytes.NewReader(in)
@@ -67,12 +67,12 @@ func run(password string, in []byte, decrypt bool) ([]byte, error) {
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Start(); err != nil {
-		pw.Close()
+		_ = pw.Close()
 		return nil, err
 	}
 	// The password is small enough to fit in the pipe buffer, so this won't block.
 	_, werr := pw.WriteString(password + "\n")
-	pw.Close()
+	_ = pw.Close()
 	if err := cmd.Wait(); err != nil {
 		return nil, err
 	}
