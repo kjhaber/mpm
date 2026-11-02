@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kjhaber/mpm/internal/crypt"
+	"github.com/kjhaber/mpm/internal/vault"
 )
 
 var (
@@ -25,7 +26,7 @@ func (m *Model) title() string {
 	case screenSecrets:
 		return "mpm › " + m.repo
 	case screenFields:
-		return "mpm › " + m.repo + " › " + m.secret
+		return "mpm › " + m.repo + " › " + vault.SafeName(m.secret)
 	case screenRepoFields:
 		return "mpm › " + m.repo + " › fields"
 	}
@@ -55,7 +56,7 @@ func (m *Model) row(name string) string {
 		pat, _ := m.handle.Repo.GetAttrib(name, "pattern")
 		return fmt.Sprintf("%s  (required: %s, pattern: %s)", name, req, pat)
 	}
-	return name
+	return vault.SafeName(name)
 }
 
 func (m *Model) View() string {

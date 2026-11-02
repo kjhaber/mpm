@@ -94,6 +94,8 @@ mpm secret copy --repo <repo-name> --secret <secret-name> [--field <field-name>]
 mpm secret delete --repo <repo-name> --secret <secret-name>
 ```
 
+Secret names may contain any characters except control characters (newlines, escapes and the like).  Names created by older versions that contain control characters are shown with `?` in their place.
+
 `secret update` merges: fields not listed in `--value` keep their current values (when prompting, a blank answer keeps the current value).
 
 In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash (a backslash before any other character is kept as written).  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  Values are validated against each field's `required` and `pattern` attributes.

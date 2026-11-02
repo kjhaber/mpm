@@ -95,7 +95,11 @@ func (a *app) secretCmd() *cobra.Command {
 			if f == "json" {
 				return printJSON(cmd.OutOrStdout(), names)
 			}
-			printLines(cmd.OutOrStdout(), names)
+			safe := make([]string, len(names))
+			for i, n := range names {
+				safe[i] = vault.SafeName(n)
+			}
+			printLines(cmd.OutOrStdout(), safe)
 			return nil
 		},
 	}, false)

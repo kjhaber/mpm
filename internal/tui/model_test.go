@@ -575,3 +575,17 @@ func TestParseEditRejectsDuplicateFields(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestRowNeutralisesControlCharactersInNames(t *testing.T) {
+	m := &Model{screen: screenSecrets}
+	if got := m.row("evil\x1b[2Jname"); strings.Contains(got, "\x1b") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTitleNeutralisesControlCharactersInSecretName(t *testing.T) {
+	m := &Model{screen: screenFields, repo: "web", secret: "evil\x1b[2J"}
+	if got := m.title(); strings.Contains(got, "\x1b") {
+		t.Fatalf("got %q", got)
+	}
+}

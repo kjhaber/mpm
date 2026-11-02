@@ -316,3 +316,26 @@ func TestSaveSyncsFileAndDirectoryBeforeReturning(t *testing.T) {
 		t.Fatalf("expected temp file and directory fsync, got %d sync calls", calls)
 	}
 }
+
+func TestSecretNamesRejectControlCharacters(t *testing.T) {
+	r := &Repo{}
+	for _, name := range []string{"a\nb", "a\x1b[2Jb", "tab\there", "bell\a", "del\x7f", "c1\u009bx"} {
+		if err := r.SetSecret(name, nil); err == nil {
+			t.Errorf("%q should be rejected", name)
+		}
+	}
+	for _, name := range []string{"github", "my bank (old)", "ünïcode 🔐", "a/b"} {
+		if err := r.SetSecret(name, nil); err != nil {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
+
+func TestSafeNameReplacesControlCharacters(t *testing.T) {
+	if got := SafeName("a\x1b[2Jb\nc"); got != "a?[2Jb?c" {
+		t.Fatalf("got %q", got)
+	}
+	if got := SafeName("plain ünï"); got != "plain ünï" {
+		t.Fatalf("got %q", got)
+	}
+}

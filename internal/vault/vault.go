@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode"
 )
 
 var (
@@ -159,10 +161,24 @@ func (r *Repo) ValidateValues(values map[string]string) error {
 	return nil
 }
 
+// SafeName replaces control characters with "?" so a name read from a repository
+// file cannot inject terminal escape sequences or extra lines when printed.
+func SafeName(name string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, name)
+}
+
 // SetSecret creates or replaces a secret after validating its values.
 func (r *Repo) SetSecret(name string, values map[string]string) error {
 	if name == "" {
 		return errors.New("secret name must not be empty")
+	}
+	if strings.ContainsFunc(name, unicode.IsControl) {
+		return errors.New("secret name must not contain control characters")
 	}
 	if err := r.ValidateValues(values); err != nil {
 		return err

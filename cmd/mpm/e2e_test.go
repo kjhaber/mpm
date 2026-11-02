@@ -338,3 +338,25 @@ func TestEditorCommandHonoursQuotedArguments(t *testing.T) {
 		t.Fatal("unterminated quote should error")
 	}
 }
+
+func TestSecretListNeutralisesControlCharactersInLegacyNames(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "web")
+	// A name from before names were restricted: plant it directly in the repo file.
+	st, err := e.a.store()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := st.Open("web", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Repo.Secrets = map[string]map[string]string{"evil\x1b[2J\nname": {}}
+	if err := h.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got := e.must("secret", "list", "--repo", "web")
+	if strings.ContainsAny(got, "\x1b") || got != "evil?[2J?name\n" {
+		t.Fatalf("got %q", got)
+	}
+}
