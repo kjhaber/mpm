@@ -8,37 +8,70 @@ A simple CLI/TUI tool for storing and retrieving encrypted secrets.  I don't wan
 brew install kjhaber/tap/mpm
 ```
 
-If desired, set environment variables to override default storage locations:
+`openssl` must be available on the machine.
 
+## Storage and encryption
+Each secret repository is one file, `<root>/<repo-name>.enc`.  The file is the base64 output of:
+
+```
+openssl enc -aes-256-cbc -a -salt -pbkdf2 -iter 100000
+```
+
+over a JSON document holding the repository's fields and secrets.  These are the same parameters used by `vicrypt`, so repository files can be opened without mpm:
+
+```
+openssl enc -d -aes-256-cbc -a -salt -pbkdf2 -iter 100000 -in ~/.local/share/mpm/<repo-name>.enc
+```
+
+(or with `vicrypt <file>`).  mpm saves by writing a temp file and renaming it over the original, and refuses to overwrite a file that changed on disk since it was read.
+
+### Passwords
+mpm reads a repository's password from the `MPM_PASSWORD` environment variable if set (useful for scripts and tests), otherwise from a hidden prompt on the terminal.  It errors if neither is available.  Passwords are never accepted as command line arguments.  A password is cached in memory for the life of the process only (the TUI asks once per repository until it exits).
+
+### Locations
+Paths follow the XDG base directory spec:
+
+| Purpose | Default | Override |
+|---|---|---|
+| Settings | `$XDG_CONFIG_HOME/mpm/settings.json` (`~/.config/mpm/settings.json`) | `XDG_CONFIG_HOME` |
+| Repositories | `$XDG_DATA_HOME/mpm` (`~/.local/share/mpm`) | `MPM_ROOT` |
+| `--resume` state | `$XDG_STATE_HOME/mpm/state.json` (`~/.local/state/mpm/state.json`) | `XDG_STATE_HOME` |
+
+Resume state holds only the repository and secret names last selected, never secret values.
 
 ## Usage
 
-(For all commands, we can alias "ls" for "list" and "rm" for "delete").
+For all commands, `ls` is an alias for `list` and `rm` is an alias for `delete`.
+
+Flag names are the same across all subcommands: `--repo`, `--secret`, `--field`, `--attrib`, `--value`, `--format`.
+
+Errors go to stderr with a non-zero exit code.  `mpm --version` prints the version, and `mpm completion zsh|bash|fish` prints a shell completion script.
 
 ### Secret repositories
 Secret repositories store a set of secrets.  Repositories include a set of fields to be tracked per secret.  Each secret repository has a password that is required to access its secrets.  For safety, secret repositories cannot be deleted if they contain any secrets (user must delete all secrets first).
 
 ```
 mpm repo list
-mpm repo create --name <repo-name>
-mpm repo show --name <repo-name>
-mpm repo delete --name <repo-name>
-mpm repo copy --name <repo-name> --from <original-repo-name> [--include-secrets]
+mpm repo create --repo <repo-name>
+mpm repo show --repo <repo-name>
+mpm repo delete --repo <repo-name>
+mpm repo copy --repo <repo-name> --from <original-repo-name> [--include-secrets]
 ```
 
+`repo create` prompts for the new password twice.  `repo copy` prompts for the original repository's password and then a new password for the copy.
 
 ### Fields
 Secret repositories include a set of fields to be tracked per secret.  For example, a website password repository might have fields for username and password, while a credit card repository might have fields for name-on-card, card-number, expire-month, expire-year, and cvv.  Fields can be set as required or optional, and may have validation rules applied to help ensure values are set correctly.  If a repository contains any secrets, no new required fields can be added to the repository.
 
 ```
-mpm field list --name <repo-name>
-mpm field create --name <repo-name> --name <field-name>
-mpm field show --name <repo-name> --name <field-name>
-mpm field list-attribs --name <repo-name> --name <field-name>
-mpm field get-attrib --name <repo-name> --name <field-name> --attrib <attribute-name>
-mpm field set-attrib --name <repo-name> --name <field-name> --attrib <attribute-name> --value <attribute-value>
-mpm field delete-attrib --name <repo-name> --name <field-name> --attrib <attribute-name>
-mpm field delete --name <repo-name> --name <field-name>
+mpm field list --repo <repo-name>
+mpm field create --repo <repo-name> --field <field-name>
+mpm field show --repo <repo-name> --field <field-name>
+mpm field list-attribs --repo <repo-name> --field <field-name>
+mpm field get-attrib --repo <repo-name> --field <field-name> --attrib <attribute-name>
+mpm field set-attrib --repo <repo-name> --field <field-name> --attrib <attribute-name> --value <attribute-value>
+mpm field delete-attrib --repo <repo-name> --field <field-name> --attrib <attribute-name>
+mpm field delete --repo <repo-name> --field <field-name>
 ```
 
 Valid attribute names:
@@ -47,8 +80,6 @@ Valid attribute names:
 
 (Later mpm may support a "type" attribute with some pre-defined regex patterns, e.g. "numeric" for `[0-9]+`.)
 
-
-
 ### Secrets
 Once a secret repository is created, secrets can be stored, retrieved, updated and removed.
 
@@ -56,12 +87,16 @@ Once a secret repository is created, secrets can be stored, retrieved, updated a
 
 ```
 mpm secret list --repo <repo-name>
-mpm secret create --repo <repo-name> --name <secret-name> --value <field:value,field:value,...>
-mpm secret update --repo <repo-name> --name <secret-name> --value <field:value,field:value,...>
-mpm secret show --repo <repo-name> --name <secret-name> [--field <field-name>] [--format text|json]
-mpm secret copy --repo <repo-name> --name <secret-name> [--field <field-name>] [--format text|json]
-mpm secret delete --repo <repo-name> --name <secret-name>
+mpm secret create --repo <repo-name> --secret <secret-name> [--value <field:value,field:value,...>]
+mpm secret update --repo <repo-name> --secret <secret-name> [--value <field:value,field:value,...>]
+mpm secret show --repo <repo-name> --secret <secret-name> [--field <field-name>] [--format text|json]
+mpm secret copy --repo <repo-name> --secret <secret-name> [--field <field-name>] [--format text|json] [--no-clear]
+mpm secret delete --repo <repo-name> --secret <secret-name>
 ```
+
+In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash.  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  Values are validated against each field's `required` and `pattern` attributes.
+
+`secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  The clipboard is cleared after 30 seconds, but only if it still holds the copied value.  `--no-clear` disables that.
 
 ## TUI mode
 Running `mpm tui` runs mpm in a TUI mode.
@@ -88,15 +123,13 @@ TUI interface has following "screens":
   - <Enter> to select field
   - <ESC> to return to Secret selection
   - "C" to copy selected field value to clipboard
-  - "S" to show selected field value on screen
-  - "E" to edit secret in editor
+  - "S" to show selected field value on screen (it is hidden again after a few seconds)
+  - "E" to edit secret in `$EDITOR` (the secret is written as `field: value` lines to a private temp file that is removed afterward; values are validated on save)
   - "Q" or <Ctrl-C> to exit TUI
-
-
 
 In general <Enter> key drills down toward secret value, and <ESC> key steps back out a level.  Arrows move up and down the list.  Pressing <ESC> enough times will exit out of the program.  "Q" and <Ctrl-C> will immediately exit from the program.
 
-"/" key shows a search filter text box (similar to vim search command).  The list of matches should live-update while typing in the filter.  <ESC> from the filter control should clear the filter and exit back to normal view for the screen.  <Enter> from the filter control should accept the filter leaving it applied and exit back to normal view for the screen.  (Maybe this can be a fuzzy search across all repos and secrets?  Or search down from currently selected location: at repository selection, "/" search can help jump straight to a specific secret right away.)
+"/" key shows a search filter text box (similar to vim search command).  The list of matches live-updates while typing in the filter.  <ESC> from the filter control clears the filter and exits back to normal view for the screen.  <Enter> from the filter control accepts the filter, leaving it applied, and exits back to normal view for the screen.  Fuzzy matching is built in (no fzf needed).  The filter applies to the list on the current screen only: secret names live inside each encrypted repository, so searching across all repositories would require every repository's password.
 
 Command line args to `mpm tui` can start the TUI mode with some values pre-selected.
 * `mpm tui`: start at repository selection (lists repositories)
@@ -104,14 +137,23 @@ Command line args to `mpm tui` can start the TUI mode with some values pre-selec
 * `mpm tui --repo <repo-name> --secret <secret-name>`: start at secret field selection (list fields in secret)
 * `mpm tui --resume`: start at same screen/secret that was selected when mpm tui was previously exited
 
+### tmux
+To pop the TUI open in a new pane for quick access to secrets, add to `tmux.conf`:
+
+```
+bind-key M split-window -h 'mpm tui'
+```
+
 ## Settings
-Written to ~/.config/mpm/settings.json by default.
+Written to `$XDG_CONFIG_HOME/mpm/settings.json` (`~/.config/mpm/settings.json`) by default.
 
-- Repository root location (~/.local/mpm by default)
-- Default format (text by default)
-- Default repository name
+| Setting | Default | Env override |
+|---|---|---|
+| Repository root location | `~/.local/share/mpm` | `MPM_ROOT` |
+| Default format | `text` | `MPM_FORMAT` |
+| Default repository name | (none) | `MPM_REPO` |
 
+Precedence is command line flag, then environment variable, then settings.json, then default.
 
 ## License
 MIT
-
