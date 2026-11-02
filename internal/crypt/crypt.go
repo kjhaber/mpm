@@ -35,8 +35,7 @@ func (opensslCrypter) Encrypt(password string, plaintext []byte) ([]byte, error)
 func (opensslCrypter) Decrypt(password string, ciphertext []byte) ([]byte, error) {
 	out, err := run(password, ciphertext, true)
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			return nil, ErrBadPassword
 		}
 		return nil, fmt.Errorf("decrypting: %w", err)
