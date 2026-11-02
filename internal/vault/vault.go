@@ -76,6 +76,40 @@ func (r *Repo) DeleteField(name string) error {
 	return fmt.Errorf("field %q: %w", name, ErrNotFound)
 }
 
+// MoveField moves a field so it sits immediately before the field named before,
+// or at the end when before is empty. Attributes and stored values are untouched;
+// field order only changes display and prompt order.
+func (r *Repo) MoveField(name, before string) error {
+	from := -1
+	for i, f := range r.Fields {
+		if f.Name == name {
+			from = i
+		}
+	}
+	if from < 0 {
+		return fmt.Errorf("field %q: %w", name, ErrNotFound)
+	}
+	if before == name {
+		return fmt.Errorf("cannot move field %q before itself", name)
+	}
+	moved := r.Fields[from]
+	rest := append(append([]Field{}, r.Fields[:from]...), r.Fields[from+1:]...)
+	at := len(rest)
+	if before != "" {
+		at = -1
+		for i, f := range rest {
+			if f.Name == before {
+				at = i
+			}
+		}
+		if at < 0 {
+			return fmt.Errorf("field %q: %w", before, ErrNotFound)
+		}
+	}
+	r.Fields = append(rest[:at], append([]Field{moved}, rest[at:]...)...)
+	return nil
+}
+
 // AttribNames lists the valid field attribute names.
 func AttribNames() []string { return []string{"required", "pattern"} }
 
@@ -164,20 +198,36 @@ func (r *Repo) ValidateValues(values map[string]string) error {
 		}
 	}
 	for _, f := range r.Fields {
-		v := values[f.Name]
-		if v == "" {
-			if f.Required {
-				return fmt.Errorf("field %q is required", f.Name)
-			}
-			continue
+		if err := f.validate(values[f.Name]); err != nil {
+			return err
 		}
-		re, err := regexp.Compile("(?s)^(?:" + f.pattern() + ")$")
-		if err != nil {
-			return fmt.Errorf("field %q has invalid pattern: %w", f.Name, err)
+	}
+	return nil
+}
+
+// ValidateField checks a single value against the named field's required and
+// pattern attributes, so callers can validate answers one at a time.
+func (r *Repo) ValidateField(name, value string) error {
+	f, err := r.field(name)
+	if err != nil {
+		return err
+	}
+	return f.validate(value)
+}
+
+func (f Field) validate(v string) error {
+	if v == "" {
+		if f.Required {
+			return fmt.Errorf("field %q is required", f.Name)
 		}
-		if !re.MatchString(v) {
-			return fmt.Errorf("field %q does not match pattern %s", f.Name, f.pattern())
-		}
+		return nil
+	}
+	re, err := regexp.Compile("(?s)^(?:" + f.pattern() + ")$")
+	if err != nil {
+		return fmt.Errorf("field %q has invalid pattern: %w", f.Name, err)
+	}
+	if !re.MatchString(v) {
+		return fmt.Errorf("field %q does not match pattern %s", f.Name, f.pattern())
 	}
 	return nil
 }

@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kjhaber/mpm/internal/clip"
 	"github.com/kjhaber/mpm/internal/crypt"
@@ -15,19 +14,12 @@ import (
 
 type fakeClip struct{ val string }
 
-func (f *fakeClip) Write(s string) error  { f.val = s; return nil }
-func (f *fakeClip) Read() (string, error) { return f.val, nil }
-
-type spawn struct {
-	value string
-	after time.Duration
-}
+func (f *fakeClip) Write(s string) error { f.val = s; return nil }
 
 type testEnv struct {
 	t       *testing.T
 	a       *app
 	clip    *fakeClip
-	spawned []spawn
 	prompts []string // answers consumed by hidden prompts
 	vars    map[string]string
 }
@@ -42,10 +34,6 @@ func newTestEnv(t *testing.T) *testEnv {
 		env:     func(k string) string { return e.vars[k] },
 		crypter: crypt.NewOpenSSL(),
 		clip:    e.clip,
-		spawnClear: func(v string, d time.Duration) error {
-			e.spawned = append(e.spawned, spawn{v, d})
-			return nil
-		},
 		prompt: func(string) (string, error) {
 			if len(e.prompts) == 0 {
 				return "", errors.New("unexpected prompt")
@@ -167,14 +155,10 @@ func TestSecretLifecycle(t *testing.T) {
 	}
 	_ = e.mustFail("secret", "update", "--repo", "r", "--secret", "missing", "--value", "user:x")
 
-	e.must("secret", "copy", "--repo", "r", "--secret", "gh", "--field", "pass")
-	if e.clip.val != "new" || len(e.spawned) != 1 || e.spawned[0].value != "new" || e.spawned[0].after != 30*time.Second {
-		t.Fatalf("clip=%q spawned=%+v", e.clip.val, e.spawned)
+	if got := e.must("secret", "copy", "--repo", "r", "--secret", "gh", "--field", "pass"); got != "Copied to clipboard.\n" || e.clip.val != "new" {
+		t.Fatalf("out=%q clip=%q", got, e.clip.val)
 	}
-	e.must("secret", "copy", "--repo", "r", "--secret", "gh", "--field", "user", "--no-clear")
-	if e.clip.val != "me" || len(e.spawned) != 1 {
-		t.Fatalf("no-clear: clip=%q spawned=%+v", e.clip.val, e.spawned)
-	}
+	_ = e.mustFail("secret", "copy", "--repo", "r", "--secret", "gh", "--no-clear")
 	e.must("secret", "delete", "--repo", "r", "--secret", "gh")
 	_ = e.mustFail("secret", "show", "--repo", "r", "--secret", "gh")
 }
@@ -193,6 +177,37 @@ func TestSecretPromptsWhenValueOmitted(t *testing.T) {
 	e.must("secret", "update", "--repo", "r", "--secret", "gh")
 	if got := e.must("secret", "show", "--repo", "r", "--secret", "gh"); got != "user: me\npass: changed\n" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSecretPromptRetriesInvalidFieldValue(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "r")
+	e.must("field", "create", "--repo", "r", "--field", "user")
+	e.must("field", "create", "--repo", "r", "--field", "pin")
+	e.must("field", "set-attrib", "--repo", "r", "--field", "pin", "--attrib", "pattern", "--value", "[0-9]+")
+	e.prompts = []string{"me", "abc", "1234"} // the bad pin is re-asked
+	out, err := e.run("secret", "create", "--repo", "r", "--secret", "gh")
+	if err != nil {
+		t.Fatalf("a bad answer must be re-asked, not abort the entry: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "does not match") {
+		t.Fatalf("the user should be told why the answer was refused: %q", out)
+	}
+	if got := e.must("secret", "show", "--repo", "r", "--secret", "gh"); got != "user: me\npin: 1234\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSecretPromptRetriesBlankRequiredField(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "r")
+	e.must("field", "create", "--repo", "r", "--field", "user")
+	e.must("field", "set-attrib", "--repo", "r", "--field", "user", "--attrib", "required", "--value", "true")
+	e.prompts = []string{"", "me"}
+	out, err := e.run("secret", "create", "--repo", "r", "--secret", "gh")
+	if err != nil || !strings.Contains(out, "required") {
+		t.Fatalf("err=%v out=%q", err, out)
 	}
 }
 
@@ -235,20 +250,9 @@ func TestMissingRepoFlagErrors(t *testing.T) {
 	}
 }
 
-func TestClipclear(t *testing.T) {
+func TestClipclearHelperRemoved(t *testing.T) {
 	e := newTestEnv(t)
-	e.a.in = strings.NewReader("val")
-	e.clip.val = "val"
-	e.must("_clipclear", "--after", "0s")
-	if e.clip.val != "" {
-		t.Fatalf("should clear unchanged value, got %q", e.clip.val)
-	}
-	e.a.in = strings.NewReader("val")
-	e.clip.val = "other"
-	e.must("_clipclear", "--after", "0s")
-	if e.clip.val != "other" {
-		t.Fatalf("should leave changed clipboard, got %q", e.clip.val)
-	}
+	_ = e.mustFail("_clipclear", "--after", "0s")
 }
 
 func TestTUIFlagValidation(t *testing.T) {
@@ -268,8 +272,7 @@ func TestChildCommandsDoNotInheritPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, cmd := range map[string]*exec.Cmd{
-		"editor":    editor,
-		"clipclear": clipclearCommand("/bin/mpm", 30*time.Second),
+		"editor": editor,
 	} {
 		for _, kv := range cmd.Env {
 			if strings.HasPrefix(kv, "MPM_PASSWORD=") {
@@ -285,7 +288,7 @@ func TestChildCommandsDoNotInheritPassword(t *testing.T) {
 	}
 }
 
-func TestCopyWithUnclearableClipboardSaysSo(t *testing.T) {
+func TestCopyWithOSC52Clipboard(t *testing.T) {
 	e := newTestEnv(t)
 	var buf bytes.Buffer
 	e.a.clip = clip.Detect(func(string) (string, error) { return "", errors.New("none") }, "linux", &buf)
@@ -293,8 +296,8 @@ func TestCopyWithUnclearableClipboardSaysSo(t *testing.T) {
 	e.must("field", "create", "--repo", "r", "--field", "f")
 	e.must("secret", "create", "--repo", "r", "--secret", "s", "--value", "f:v")
 	out := e.must("secret", "copy", "--repo", "r", "--secret", "s")
-	if !strings.Contains(out, "cannot be cleared automatically") || len(e.spawned) != 0 {
-		t.Fatalf("out=%q spawned=%v", out, e.spawned)
+	if out != "Copied to clipboard.\n" {
+		t.Fatalf("out=%q", out)
 	}
 	if !strings.Contains(buf.String(), "\x1b]52;c;") {
 		t.Fatalf("OSC52 not written: %q", buf.String())
@@ -391,4 +394,27 @@ func TestEditorCommandDisablesVimHistoryFiles(t *testing.T) {
 	if want := []string{"code", "--wait", "/tmp/x"}; !reflect.DeepEqual(cmd.Args, want) {
 		t.Fatalf("other editors are left alone: %q", cmd.Args)
 	}
+}
+
+func TestFieldMoveReordersSecretOutput(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "cards")
+	for _, f := range []string{"card-number", "expiry", "cardholder-name"} {
+		e.must("field", "create", "--repo", "cards", "--field", f)
+	}
+	e.must("secret", "create", "--repo", "cards", "--secret", "visa",
+		"--value", "card-number:4111,expiry:12/30,cardholder-name:A B")
+	e.must("field", "move", "--repo", "cards", "--field", "cardholder-name", "--before", "card-number")
+	if got := e.must("field", "list", "--repo", "cards"); got != "cardholder-name\ncard-number\nexpiry\n" {
+		t.Fatalf("list: %q", got)
+	}
+	if got := e.must("secret", "show", "--repo", "cards", "--secret", "visa"); got != "cardholder-name: A B\ncard-number: 4111\nexpiry: 12/30\n" {
+		t.Fatalf("show: %q", got)
+	}
+	e.must("field", "move", "--repo", "cards", "--field", "cardholder-name") // no --before: to the end
+	if got := e.must("field", "list", "--repo", "cards"); got != "card-number\nexpiry\ncardholder-name\n" {
+		t.Fatalf("list after move to end: %q", got)
+	}
+	_ = e.mustFail("field", "move", "--repo", "cards", "--field", "nope")
+	_ = e.mustFail("field", "move", "--repo", "cards", "--field", "expiry", "--before", "nope")
 }

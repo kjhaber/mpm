@@ -19,6 +19,8 @@ var (
 	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	msgStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	cursorStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62"))
+	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	badStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 )
 
 func (m *Model) title() string {
@@ -40,7 +42,7 @@ func (m *Model) hints() string {
 	case screenFields:
 		return "enter/s show · c copy · e edit · / filter · esc back · q quit"
 	case screenRepoFields:
-		return "n new · x delete · r toggle required · p pattern · esc back · q quit"
+		return "n new · x delete · u/d move · r toggle required · p pattern · esc back · q quit"
 	}
 	return "enter open · n new · x delete · f fields · / filter · esc quit · q quit"
 }
@@ -57,6 +59,18 @@ func (m *Model) row(name string) string {
 		return fmt.Sprintf("%s  (required: %s, pattern: %s)", name, req, pat)
 	}
 	return vault.SafeName(name)
+}
+
+// promptIndicator is a live validity mark for checked prompts: ✓ when Enter would
+// be accepted, ✗ when it would be refused.
+func (m *Model) promptIndicator() string {
+	if m.promptCheck == nil {
+		return ""
+	}
+	if m.promptCheck(m.promptInput.Value()) != nil {
+		return " " + badStyle.Render("✗")
+	}
+	return " " + okStyle.Render("✓")
 }
 
 func (m *Model) View() string {
@@ -78,7 +92,7 @@ func (m *Model) View() string {
 
 	switch m.mode {
 	case modePrompt:
-		b.WriteString(m.promptLabel + m.promptInput.View() + "\n")
+		b.WriteString(m.promptLabel + m.promptInput.View() + m.promptIndicator() + "\n")
 	case modeConfirm:
 		b.WriteString(m.confirmLabel + " (y/N)\n")
 	case modeFilter:

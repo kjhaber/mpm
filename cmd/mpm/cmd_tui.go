@@ -41,8 +41,6 @@ func (a *app) tuiCmd() *cobra.Command {
 				Clip:        a.clip,
 				EnvPassword: a.env("MPM_PASSWORD"),
 				StatePath:   config.ResolvePaths(a.env).State,
-				ClearAfter:  clipboardClearAfter,
-				SpawnClear:  a.spawnClear,
 				RunEditor:   runEditor(a.env),
 			}, tui.Options{Repo: repo, Secret: secret, Resume: resume})
 

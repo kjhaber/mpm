@@ -481,3 +481,66 @@ func TestDeleteRemovesLockFile(t *testing.T) {
 		t.Fatalf("leftovers after delete: %v", entries)
 	}
 }
+
+func fieldOrder(r *Repo) string {
+	var names []string
+	for _, f := range r.Fields {
+		names = append(names, f.Name)
+	}
+	return strings.Join(names, ",")
+}
+
+func TestMoveField(t *testing.T) {
+	for _, tc := range []struct{ field, before, want string }{
+		{"c", "a", "c,a,b,d"},
+		{"c", "b", "a,c,b,d"},
+		{"a", "", "b,c,d,a"},
+		{"a", "d", "b,c,a,d"},
+		{"d", "", "a,b,c,d"},  // already last
+		{"b", "c", "a,b,c,d"}, // already just before c
+		{"d", "a", "d,a,b,c"},
+	} {
+		r := &Repo{}
+		for _, n := range []string{"a", "b", "c", "d"} {
+			_ = r.AddField(n)
+		}
+		if err := r.MoveField(tc.field, tc.before); err != nil {
+			t.Fatalf("%+v: %v", tc, err)
+		}
+		if got := fieldOrder(r); got != tc.want {
+			t.Errorf("move %s before %q: got %s want %s", tc.field, tc.before, got, tc.want)
+		}
+	}
+}
+
+func TestMoveFieldKeepsAttributesAndValues(t *testing.T) {
+	r := &Repo{}
+	_ = r.AddField("a")
+	_ = r.AddField("b")
+	_ = r.SetAttrib("a", "pattern", "[0-9]+")
+	_ = r.SetSecret("s", map[string]string{"a": "12", "b": "x"})
+	if err := r.MoveField("a", ""); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := r.GetAttrib("a", "pattern"); v != "[0-9]+" || r.Secrets["s"]["a"] != "12" {
+		t.Fatalf("attribute or value lost: %q %v", v, r.Secrets)
+	}
+}
+
+func TestMoveFieldErrors(t *testing.T) {
+	r := &Repo{}
+	_ = r.AddField("a")
+	_ = r.AddField("b")
+	if err := r.MoveField("nope", ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown field: %v", err)
+	}
+	if err := r.MoveField("a", "nope"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown anchor: %v", err)
+	}
+	if err := r.MoveField("a", "a"); err == nil {
+		t.Error("moving a field before itself should fail")
+	}
+	if got := fieldOrder(r); got != "a,b" {
+		t.Errorf("order changed by failed moves: %s", got)
+	}
+}

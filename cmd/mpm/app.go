@@ -7,12 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/kjhaber/mpm/internal/childenv"
 	"github.com/kjhaber/mpm/internal/cli"
 	"github.com/kjhaber/mpm/internal/clip"
 	"github.com/kjhaber/mpm/internal/config"
@@ -20,58 +17,25 @@ import (
 	"github.com/kjhaber/mpm/internal/vault"
 )
 
-const clipboardClearAfter = 30 * time.Second
-
 // app holds the process-level dependencies shared by all commands.
 type app struct {
-	env        func(string) string
-	in         io.Reader
-	crypter    crypt.Crypter
-	clip       clip.Clipboard
-	spawnClear func(value string, after time.Duration) error
-	prompt     func(label string) (string, error)
+	env     func(string) string
+	in      io.Reader
+	crypter crypt.Crypter
+	clip    clip.Clipboard
+	prompt  func(label string) (string, error)
 
 	pw *cli.PasswordSource
 }
 
 func newApp() *app {
 	return &app{
-		env:        os.Getenv,
-		in:         os.Stdin,
-		crypter:    crypt.NewOpenSSL(),
-		clip:       clip.Detect(exec.LookPath, runtime.GOOS, nil),
-		spawnClear: spawnClipclear,
-		prompt:     cli.TTYPrompt,
+		env:     os.Getenv,
+		in:      os.Stdin,
+		crypter: crypt.NewOpenSSL(),
+		clip:    clip.Detect(exec.LookPath, runtime.GOOS, nil),
+		prompt:  cli.TTYPrompt,
 	}
-}
-
-// spawnClipclear starts a detached helper that clears the clipboard after a delay
-// if it still holds value. The value is passed on stdin, never argv.
-func spawnClipclear(value string, after time.Duration) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	cmd := clipclearCommand(exe, after)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	_, werr := io.WriteString(stdin, value)
-	_ = stdin.Close()
-	_ = cmd.Process.Release()
-	return werr
-}
-
-// clipclearCommand builds the detached helper command, without MPM_PASSWORD in its environment.
-func clipclearCommand(exe string, after time.Duration) *exec.Cmd {
-	cmd := exec.Command(exe, "_clipclear", "--after", after.String())
-	cmd.Env = childenv.Env()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	return cmd
 }
 
 func (a *app) settings() (config.Settings, error) { return config.Load(a.env, config.Settings{}) }
@@ -164,6 +128,6 @@ func newRootCmd(a *app) *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.SetVersionTemplate("mpm version {{.Version}}\n")
-	root.AddCommand(a.repoCmd(), a.fieldCmd(), a.secretCmd(), a.clipclearCmd(), a.tuiCmd())
+	root.AddCommand(a.repoCmd(), a.fieldCmd(), a.secretCmd(), a.tuiCmd())
 	return root
 }

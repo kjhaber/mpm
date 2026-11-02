@@ -67,6 +67,7 @@ Secret repositories include a set of fields to be tracked per secret.  For examp
 mpm field list --repo <repo-name>
 mpm field create --repo <repo-name> --field <field-name>
 mpm field show --repo <repo-name> --field <field-name>
+mpm field move --repo <repo-name> --field <field-name> [--before <other-field-name>]
 mpm field list-attribs --repo <repo-name> --field <field-name>
 mpm field get-attrib --repo <repo-name> --field <field-name> --attrib <attribute-name>
 mpm field set-attrib --repo <repo-name> --field <field-name> --attrib <attribute-name> --value <attribute-value>
@@ -77,6 +78,8 @@ mpm field delete --repo <repo-name> --field <field-name>
 Valid attribute names:
 * `required`. Valid values are "true" or "false" (case-sensitive). Default is false.
 * `pattern`. Regex pattern (RE2) that secret field value must match.  Default is `.+` (match any non-empty string).
+
+Fields are listed, prompted for and shown in repository order.  `field move` puts a field immediately before `--before` (or at the end when `--before` is omitted), e.g. to put `cardholder-name` above `card-number`.  In the TUI use "U"/"D" on the repository fields screen (not while a filter is applied).
 
 (Later mpm may support a "type" attribute with some pre-defined regex patterns, e.g. "numeric" for `[0-9]+`.)
 
@@ -90,7 +93,7 @@ mpm secret list --repo <repo-name>
 mpm secret create --repo <repo-name> --secret <secret-name> [--value <field:value,field:value,...>]
 mpm secret update --repo <repo-name> --secret <secret-name> [--value <field:value,field:value,...>]
 mpm secret show --repo <repo-name> --secret <secret-name> [--field <field-name>] [--format text|json]
-mpm secret copy --repo <repo-name> --secret <secret-name> [--field <field-name>] [--format text|json] [--no-clear]
+mpm secret copy --repo <repo-name> --secret <secret-name> [--field <field-name>] [--format text|json]
 mpm secret delete --repo <repo-name> --secret <secret-name>
 ```
 
@@ -98,9 +101,9 @@ Secret names may contain any characters except control characters (newlines, esc
 
 `secret update` merges: fields not listed in `--value` keep their current values (when prompting, a blank answer keeps the current value).
 
-In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash (a backslash before any other character is kept as written).  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  Values are validated against each field's `required` and `pattern` attributes.
+In `--value`, a literal comma, colon or backslash in a value can be escaped with a backslash (a backslash before any other character is kept as written).  If `--value` is omitted on `create` or `update`, mpm prompts for each field with hidden input, which keeps secrets out of shell history.  A value that fails its field's rules is explained and asked for again instead of aborting the whole entry.  Values are validated against each field's `required` and `pattern` attributes.
 
-`secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  The clipboard is cleared after 30 seconds, but only if it still holds the copied value.  `--no-clear` disables that.  The OSC52 fallback can't be read back, so it can't be cleared automatically; mpm says so when copying.  OSC52 is written to the terminal, never to redirected stdout.
+`secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  mpm never clears or reads the clipboard (clearing risks wiping something else you copied meanwhile), so a copied secret stays there until you replace it.  OSC52 is written to the terminal, never to redirected stdout.
 
 ## TUI mode
 Running `mpm tui` runs mpm in a TUI mode.
@@ -111,14 +114,14 @@ TUI interface has following "screens":
   - <ESC> to exit TUI
   - "N" to create new repository
   - "X" to delete repository (if no secrets in repository)
-  - "F" to enter repository fields to show/modify repository's fields (on that screen: "N" add field, "X" delete field, "R" toggle required, "P" set regex pattern)
+  - "F" to enter repository fields to show/modify repository's fields (on that screen: "N" add field, "X" delete field, "U"/"D" move field up/down, "R" toggle required, "P" set regex pattern)
   - "/" to filter list (fuzzy search)
   - "Q" or <Ctrl-C> to exit TUI
 
 * Secret selection: lists secrets within selected repository
   - <Enter> to select secret
   - <ESC> to return to repository selection
-  - "N" to create new secret
+  - "N" to create new secret (each field is asked in turn with hidden input; a live ✓/✗ shows whether the value satisfies the field's pattern and required rules, and <Enter> is refused until it does)
   - "X" to delete secret
   - "/" to filter list (fuzzy search)
   - "Q" or <Ctrl-C> to exit TUI

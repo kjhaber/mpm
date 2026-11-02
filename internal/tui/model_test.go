@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -33,14 +32,12 @@ func (fakeCrypter) Decrypt(pw string, in []byte) ([]byte, error) {
 
 type fakeClip struct{ val string }
 
-func (f *fakeClip) Write(s string) error  { f.val = s; return nil }
-func (f *fakeClip) Read() (string, error) { return f.val, nil }
+func (f *fakeClip) Write(s string) error { f.val = s; return nil }
 
 type env struct {
 	t         *testing.T
 	store     *vault.Store
 	clip      *fakeClip
-	spawned   []string
 	statePath string
 	editor    func(path string) error // simulates $EDITOR
 	deps      Deps
@@ -52,8 +49,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{t: t, clip: &fakeClip{}, statePath: filepath.Join(dir, "state.json"),
 		store: &vault.Store{Root: filepath.Join(dir, "repos"), Crypter: fakeCrypter{}}}
 	e.deps = Deps{
-		Store: e.store, Clip: e.clip, StatePath: e.statePath, ClearAfter: 30 * time.Second,
-		SpawnClear: func(v string, _ time.Duration) error { e.spawned = append(e.spawned, v); return nil },
+		Store: e.store, Clip: e.clip, StatePath: e.statePath,
 		RunEditor: func(path string, done func(error) tea.Msg) tea.Cmd {
 			return func() tea.Msg {
 				if e.editor == nil {
@@ -230,10 +226,13 @@ func TestCopyFieldValue(t *testing.T) {
 	e := newEnv(t)
 	m := openFields(t, e)
 	press(m, k("c")) // first field is user
-	if e.clip.val != "me" || len(e.spawned) != 1 || e.spawned[0] != "me" {
-		t.Fatalf("clip=%q spawned=%v", e.clip.val, e.spawned)
+	if e.clip.val != "me" {
+		t.Fatalf("clip=%q", e.clip.val)
 	}
-	mustContain(t, m, "Copied")
+	mustContain(t, m, "Copied user to clipboard")
+	if strings.Contains(m.View(), "clear") {
+		t.Fatalf("no clearing is promised or scheduled:\n%s", m.View())
+	}
 }
 
 func TestShowRevealsThenHides(t *testing.T) {
@@ -334,7 +333,36 @@ func TestNewAndDeleteSecret(t *testing.T) {
 	}
 }
 
-func TestNewSecretValidationError(t *testing.T) {
+func TestNewSecretRetriesInvalidFieldWithoutLosingEarlierAnswers(t *testing.T) {
+	e := newEnv(t)
+	e.seed()
+	h, _ := e.store.Open("web", "pw")
+	_ = h.Repo.SetAttrib("pass", "pattern", "[a-z0-9]+")
+	_ = h.Save()
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{Repo: "web"})
+	press(m, k("n"))
+	typ(m, "bank")
+	press(m, enter)
+	typ(m, "me") // user: ok
+	press(m, enter)
+	typ(m, "ABC") // pass: violates [a-z0-9]+
+	press(m, enter)
+	mustContain(t, m, "does not match")
+	mustContain(t, m, "pass:") // still asking for pass, not aborted
+	if _, ok := e.repoOf("web").Secrets["bank"]; ok {
+		t.Fatal("nothing should be saved until every field is accepted")
+	}
+	press(m, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace})
+	typ(m, "1234")
+	press(m, enter)
+	got := e.repoOf("web").Secrets["bank"]
+	if got["user"] != "me" || got["pass"] != "1234" {
+		t.Fatalf("got %v (earlier answers must survive the retry)", got)
+	}
+}
+
+func TestNewSecretShowsLiveValidityIndicator(t *testing.T) {
 	e := newEnv(t)
 	e.seed()
 	h, _ := e.store.Open("web", "pw")
@@ -343,16 +371,31 @@ func TestNewSecretValidationError(t *testing.T) {
 	e.deps.EnvPassword = "pw"
 	m := New(e.deps, Options{Repo: "web"})
 	press(m, k("n"))
-	typ(m, "bad")
+	typ(m, "bank")
 	press(m, enter)
 	typ(m, "UPPER")
-	press(m, enter)
-	typ(m, "x")
-	press(m, enter)
-	mustContain(t, m, "does not match")
-	if _, ok := e.repoOf("web").Secrets["bad"]; ok {
-		t.Fatal("invalid secret must not be saved")
-	}
+	mustContain(t, m, "✗")
+	mustNotContain(t, m, "✓")
+	press(m, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace}, tea.KeyMsg{Type: tea.KeyBackspace})
+	typ(m, "ok")
+	mustContain(t, m, "✓")
+	mustNotContain(t, m, "✗")
+}
+
+func TestNewSecretRequiredFieldCannotBeBlank(t *testing.T) {
+	e := newEnv(t)
+	e.seed()
+	h, _ := e.store.Open("web", "pw")
+	h.Repo.Secrets = nil // required can only be set while the repo has no secrets
+	_ = h.Repo.SetAttrib("user", "required", "true")
+	_ = h.Save()
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{Repo: "web"})
+	press(m, k("n"))
+	typ(m, "bank")
+	press(m, enter, enter) // blank answer for the required field
+	mustContain(t, m, "required")
+	mustContain(t, m, "user:")
 }
 
 func TestRepoFieldsScreen(t *testing.T) {
@@ -557,15 +600,15 @@ func TestCleanupIsSafeAgainstConcurrentEdit(t *testing.T) {
 	m.Cleanup()
 }
 
-func TestCopyWithUnclearableClipboardWarns(t *testing.T) {
+func TestCopyWithOSC52ClipboardDoesNotMentionClearing(t *testing.T) {
 	e := newEnv(t)
 	var buf bytes.Buffer
 	e.deps.Clip = clip.Detect(func(string) (string, error) { return "", errors.New("none") }, "linux", &buf)
 	m := openFields(t, e)
 	press(m, k("c"))
-	mustContain(t, m, "cannot be cleared automatically")
-	if len(e.spawned) != 0 {
-		t.Fatalf("no clear helper should be spawned: %v", e.spawned)
+	mustContain(t, m, "Copied user to clipboard")
+	if strings.Contains(m.View(), "clear") {
+		t.Fatalf("got:\n%s", m.View())
 	}
 }
 
@@ -587,5 +630,57 @@ func TestTitleNeutralisesControlCharactersInSecretName(t *testing.T) {
 	m := &Model{screen: screenFields, repo: "web", secret: "evil\x1b[2J"}
 	if got := m.title(); strings.Contains(got, "\x1b") {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func fieldNamesOf(r *vault.Repo) string {
+	var out []string
+	for _, f := range r.Fields {
+		out = append(out, f.Name)
+	}
+	return strings.Join(out, ",")
+}
+
+func TestRepoFieldsReorderWithUAndD(t *testing.T) {
+	e := newEnv(t)
+	e.seed() // fields: user, pass
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{})
+	press(m, k("f"))
+	press(m, tea.KeyMsg{Type: tea.KeyDown}, k("u")) // pass up
+	if got := fieldNamesOf(e.repoOf("web")); got != "pass,user" {
+		t.Fatalf("after u: %s", got)
+	}
+	if m.selected() != "pass" {
+		t.Fatalf("cursor should follow the moved field, on %q", m.selected())
+	}
+	press(m, k("d"))
+	if got := fieldNamesOf(e.repoOf("web")); got != "user,pass" {
+		t.Fatalf("after d: %s", got)
+	}
+	if m.selected() != "pass" {
+		t.Fatalf("cursor should follow the moved field, on %q", m.selected())
+	}
+	press(m, k("d")) // already last: no change, no error
+	if got := fieldNamesOf(e.repoOf("web")); got != "user,pass" {
+		t.Fatalf("d at bottom: %s", got)
+	}
+	press(m, k("u"), k("u")) // pass to top, then no-op
+	if got := fieldNamesOf(e.repoOf("web")); got != "pass,user" {
+		t.Fatalf("u at top: %s", got)
+	}
+}
+
+func TestRepoFieldsReorderRefusedWhileFiltering(t *testing.T) {
+	e := newEnv(t)
+	e.seed()
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{})
+	press(m, k("f"), k("/"))
+	typ(m, "pass")
+	press(m, enter, k("u"))
+	mustContain(t, m, "filter")
+	if got := fieldNamesOf(e.repoOf("web")); got != "user,pass" {
+		t.Fatalf("order changed under a filter: %s", got)
 	}
 }
