@@ -236,7 +236,7 @@ func (m *Model) fieldsKey(key string) tea.Cmd {
 		return nil
 	}
 	switch key {
-	case "enter", "s":
+	case "s":
 		if m.revealed && m.revealName == sel {
 			m.revealed = false
 			return nil

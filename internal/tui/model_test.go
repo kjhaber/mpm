@@ -254,6 +254,19 @@ func TestShowRevealsThenHides(t *testing.T) {
 	}
 }
 
+func TestEnterOnFieldDoesNotReveal(t *testing.T) {
+	e := newEnv(t)
+	m := openFields(t, e)
+	press(m, enter)
+	if m.revealed {
+		t.Fatal("Enter must not reveal a field value; only S does")
+	}
+	mustNotContain(t, m, "me\n")
+	if strings.Contains(m.View(), "enter/s") {
+		t.Fatalf("help should not advertise Enter as show:\n%s", m.View())
+	}
+}
+
 func TestNewRepo(t *testing.T) {
 	e := newEnv(t)
 	m := New(e.deps, Options{})

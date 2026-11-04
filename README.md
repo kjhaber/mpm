@@ -127,10 +127,9 @@ TUI interface has following "screens":
   - "Q" or <Ctrl-C> to exit TUI
 
 * Secret field selection: lists fields within selected secret
-  - <Enter> to select field
   - <ESC> to return to Secret selection
   - "C" to copy selected field value to clipboard
-  - <Enter> or "S" to show selected field value on screen (it is hidden again after a few seconds)
+  - "S" to show selected field value on screen (it is hidden again after a few seconds); <Enter> deliberately does not show or copy values, so drilling down never exposes a secret
   - "E" to edit secret in `$EDITOR` (`$VISUAL` is tried first; vim and nvim are started without swap, backup, undo or viminfo files so the decrypted text is not left behind (other editors are launched as configured, so disable their history files yourself); arguments may be quoted like in a shell, e.g. `EDITOR="code --wait"`; the secret is written as `field: value` lines to a private temp file that is removed afterward; values are validated on save; a backslash or newline inside a value appears as `\\` or `\n`)
   - "Q" or <Ctrl-C> to exit TUI
 
