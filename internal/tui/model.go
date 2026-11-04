@@ -80,6 +80,7 @@ type Model struct {
 	promptInput  textinput.Model
 	promptLabel  string
 	promptFn     promptFunc
+	pending      tea.Cmd            // command a prompt callback wants run once the prompt closes
 	promptCheck  func(string) error // optional: Enter is refused (and the input kept) while it errors
 	confirmLabel string
 	confirmFn    confirmedFunc
@@ -280,6 +281,9 @@ func (m *Model) promptKey(msg tea.KeyMsg) tea.Cmd {
 		if fn != nil {
 			fn(v)
 		}
+		cmd := m.pending
+		m.pending = nil
+		return cmd
 	default:
 		m.promptInput, _ = m.promptInput.Update(msg)
 	}

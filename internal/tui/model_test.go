@@ -697,3 +697,114 @@ func TestRepoFieldsReorderRefusedWhileFiltering(t *testing.T) {
 		t.Fatalf("order changed under a filter: %s", got)
 	}
 }
+
+func openSecrets(t *testing.T, e *env) *Model {
+	t.Helper()
+	e.seed()
+	e.deps.EnvPassword = "pw"
+	return New(e.deps, Options{Repo: "web"})
+}
+
+func TestNewSecretInEditor(t *testing.T) {
+	e := newEnv(t)
+	m := openSecrets(t, e)
+	var seenPath string
+	e.editor = func(path string) error {
+		seenPath = path
+		b, _ := os.ReadFile(path)
+		if string(b) != "user: \npass: \n" {
+			t.Errorf("template: %q", b)
+		}
+		return os.WriteFile(path, []byte("user: glu\npass: line1\\nline2\n"), 0o600)
+	}
+	press(m, k("e"))
+	typ(m, "gl")
+	finishEdit(t, m, press(m, enter))
+	r := e.repoOf("web")
+	if r.Secrets["gl"]["user"] != "glu" || r.Secrets["gl"]["pass"] != "line1\nline2" {
+		t.Fatalf("got %v", r.Secrets)
+	}
+	if len(r.Secrets) != 2 {
+		t.Fatalf("existing secret must be kept: %v", r.Secrets)
+	}
+	mustContain(t, m, "created gl")
+	if _, err := os.Stat(filepath.Dir(seenPath)); !os.IsNotExist(err) {
+		t.Fatal("temp dir should be removed")
+	}
+}
+
+func TestNewSecretInEditorRefusesExistingName(t *testing.T) {
+	e := newEnv(t)
+	m := openSecrets(t, e)
+	e.editor = func(string) error { t.Error("editor must not start"); return nil }
+	press(m, k("e"))
+	typ(m, "gh")
+	if cmd := press(m, enter); cmd != nil {
+		t.Fatal("no editor command expected")
+	}
+	mustContain(t, m, "already exists")
+	if e.repoOf("web").Secrets["gh"]["user"] != "me" {
+		t.Fatal("secret must be unchanged")
+	}
+}
+
+func TestNewSecretInEditorBlankNameDoesNothing(t *testing.T) {
+	e := newEnv(t)
+	m := openSecrets(t, e)
+	if cmd := press(m, k("e"), enter); cmd != nil {
+		t.Fatal("no editor command expected")
+	}
+	if len(e.repoOf("web").Secrets) != 1 {
+		t.Fatal("nothing should be created")
+	}
+}
+
+func TestNewSecretInEditorNeedsFields(t *testing.T) {
+	e := newEnv(t)
+	if err := e.store.Create("web", "pw"); err != nil {
+		t.Fatal(err)
+	}
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{Repo: "web"})
+	press(m, k("e"))
+	mustContain(t, m, "no fields")
+}
+
+func TestNewSecretInEditorInvalidValueCreatesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.seed()
+	h, _ := e.store.Open("web", "pw")
+	_ = h.Repo.SetAttrib("user", "pattern", "[a-z]+")
+	_ = h.Save()
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{Repo: "web"})
+	e.editor = func(path string) error {
+		return os.WriteFile(path, []byte("user: BAD\npass: x\n"), 0o600)
+	}
+	press(m, k("e"))
+	typ(m, "gl")
+	finishEdit(t, m, press(m, enter))
+	mustContain(t, m, "does not match")
+	if _, ok := e.repoOf("web").Secrets["gl"]; ok {
+		t.Fatal("secret must not be created")
+	}
+}
+
+func TestNewSecretInEditorErrorCreatesNothing(t *testing.T) {
+	e := newEnv(t)
+	m := openSecrets(t, e)
+	e.editor = func(string) error { return errors.New("editor crashed") }
+	press(m, k("e"))
+	typ(m, "gl")
+	finishEdit(t, m, press(m, enter))
+	mustContain(t, m, "editor crashed")
+	if _, ok := e.repoOf("web").Secrets["gl"]; ok {
+		t.Fatal("secret must not be created")
+	}
+}
+
+func TestSecretsHintMentionsEditorCreate(t *testing.T) {
+	e := newEnv(t)
+	m := openSecrets(t, e)
+	mustContain(t, m, "e new in editor")
+}

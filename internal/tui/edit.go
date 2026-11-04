@@ -10,6 +10,7 @@ import (
 // editSession tracks the private temp dir holding a decrypted secret during an editor run.
 type editSession struct {
 	dir, path, secret string
+	isNew             bool // the secret does not exist yet
 }
 
 // formatEdit renders values as "field: value" lines. Backslashes and newlines in

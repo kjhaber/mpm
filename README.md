@@ -122,6 +122,7 @@ TUI interface has following "screens":
   - <Enter> to select secret
   - <ESC> to return to repository selection
   - "N" to create new secret (each field is asked in turn with hidden input; a live ✓/✗ shows whether the value satisfies the field's pattern and required rules, and <Enter> is refused until it does)
+  - "E" to create a new secret in `$EDITOR`: asks for the name, then opens a blank `field: value` template (same editor handling, temp file and validation as editing a secret; nothing is created if the editor fails or a value is invalid)
   - "X" to delete secret
   - "/" to filter list (fuzzy search)
   - "Q" or <Ctrl-C> to exit TUI

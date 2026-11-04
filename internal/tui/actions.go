@@ -177,6 +177,8 @@ func (m *Model) secretsKey(key string) {
 		}
 	case "n":
 		m.newSecret()
+	case "e":
+		m.newSecretInEditor()
 	case "x":
 		if sel != "" {
 			m.confirm(fmt.Sprintf("Delete secret %s?", sel), func() {
@@ -228,6 +230,26 @@ func (m *Model) newSecret() {
 	})
 }
 
+// newSecretInEditor asks for a name, then opens a blank "field: value" template
+// in $EDITOR; the secret is created when the editor exits and the values validate.
+func (m *Model) newSecretInEditor() {
+	r := m.handle.Repo
+	if len(r.Fields) == 0 {
+		m.msg = "repository has no fields; press Esc, then F to add fields"
+		return
+	}
+	m.ask("New secret name: ", false, func(name string) {
+		if name == "" {
+			return
+		}
+		if _, exists := r.Secrets[name]; exists {
+			m.msg = fmt.Sprintf("secret %q already exists", name)
+			return
+		}
+		m.pending = m.startEditOf(name, nil, true)
+	})
+}
+
 // --- fields screen (one secret) ---
 
 func (m *Model) fieldsKey(key string) tea.Cmd {
@@ -271,12 +293,19 @@ func (m *Model) fieldNames() []string {
 }
 
 func (m *Model) startEdit() tea.Cmd {
+	return m.startEditOf(m.secret, m.handle.Repo.Secrets[m.secret], false)
+}
+
+// startEditOf opens secret's values in the editor; isNew marks a secret that
+// does not exist yet.
+func (m *Model) startEditOf(secret string, vals map[string]string, isNew bool) tea.Cmd {
 	m.Cleanup()
-	sess, err := newEditSession(m.secret, formatEdit(m.fieldNames(), m.handle.Repo.Secrets[m.secret]))
+	sess, err := newEditSession(secret, formatEdit(m.fieldNames(), vals))
 	if err != nil {
 		m.msg = err.Error()
 		return nil
 	}
+	sess.isNew = isNew
 	m.setEdit(sess)
 	return m.deps.RunEditor(sess.path, func(err error) tea.Msg { return editDoneMsg{err} })
 }
@@ -287,24 +316,32 @@ func (m *Model) finishEdit(editErr error) {
 		return
 	}
 	defer m.Cleanup()
+	outcome := "secret unchanged"
+	if sess.isNew {
+		outcome = "secret not created"
+	}
 	if editErr != nil {
-		m.msg = "editor failed: " + editErr.Error() + " (secret unchanged)"
+		m.msg = "editor failed: " + editErr.Error() + " (" + outcome + ")"
 		return
 	}
 	data, err := readFile(sess.path)
 	if err != nil {
-		m.msg = "could not read edited file: " + err.Error() + " (secret unchanged)"
+		m.msg = "could not read edited file: " + err.Error() + " (" + outcome + ")"
 		return
 	}
 	vals, err := parseEdit(string(data), m.fieldNames())
 	if err != nil {
-		m.msg = err.Error() + " (secret unchanged)"
+		m.msg = err.Error() + " (" + outcome + ")"
 		return
 	}
 	if m.mutate(func(r *vault.Repo) error { return r.SetSecret(sess.secret, vals) }) {
-		m.msg = "saved " + sess.secret
+		if sess.isNew {
+			m.msg = "created " + sess.secret
+		} else {
+			m.msg = "saved " + sess.secret
+		}
 	} else {
-		m.msg += " (secret unchanged)"
+		m.msg += " (" + outcome + ")"
 	}
 }
 

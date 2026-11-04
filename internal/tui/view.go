@@ -38,7 +38,7 @@ func (m *Model) title() string {
 func (m *Model) hints() string {
 	switch m.screen {
 	case screenSecrets:
-		return "enter open · n new · x delete · / filter · esc back · q quit"
+		return "enter open · n new · e new in editor · x delete · / filter · esc back · q quit"
 	case screenFields:
 		return "s show · c copy · e edit · / filter · esc back · q quit"
 	case screenRepoFields:
