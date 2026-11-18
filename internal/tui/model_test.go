@@ -808,3 +808,47 @@ func TestSecretsHintMentionsEditorCreate(t *testing.T) {
 	m := openSecrets(t, e)
 	mustContain(t, m, "e new in editor")
 }
+
+func TestGeneratePasswordIntoSelectedField(t *testing.T) {
+	e := newEnv(t)
+	m := openFields(t, e)
+	press(m, k("j"), k("p")) // second field is pass
+	got := e.repoOf("web").Secrets["gh"]["pass"]
+	if got == "s3cret" || len(got) != 20 {
+		t.Fatalf("pass=%q", got)
+	}
+	if e.repoOf("web").Secrets["gh"]["user"] != "me" {
+		t.Fatal("other fields must be kept")
+	}
+	mustContain(t, m, "Generated password for pass")
+	mustNotContain(t, m, got)
+	if e.clip.val != "" {
+		t.Fatalf("clipboard should be untouched, got %q", e.clip.val)
+	}
+}
+
+func TestGeneratePasswordFailingPatternLeavesValue(t *testing.T) {
+	e := newEnv(t)
+	e.seed()
+	h, _ := e.store.Open("web", "pw")
+	_ = h.Repo.SetSecret("gh", map[string]string{"user": "me", "pass": "1234"})
+	if err := h.Repo.SetAttrib("pass", "pattern", "[0-9]{4}"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Save(); err != nil {
+		t.Fatal(err)
+	}
+	e.deps.EnvPassword = "pw"
+	m := New(e.deps, Options{Repo: "web", Secret: "gh"})
+	press(m, k("j"), k("p"))
+	if got := e.repoOf("web").Secrets["gh"]["pass"]; got != "1234" {
+		t.Fatalf("pass=%q", got)
+	}
+	mustContain(t, m, "pattern")
+}
+
+func TestFieldsHintMentionsGenerate(t *testing.T) {
+	e := newEnv(t)
+	m := openFields(t, e)
+	mustContain(t, m, "p generate")
+}

@@ -105,6 +105,19 @@ In `--value`, a literal comma, colon or backslash in a value can be escaped with
 
 `secret copy` uses the platform clipboard (`pbcopy` on macOS; `wl-copy`, `xclip` or `xsel` on Linux; OSC52 terminal escape as a last resort).  mpm never clears or reads the clipboard (clearing risks wiping something else you copied meanwhile), so a copied secret stays there until you replace it.  OSC52 is written to the terminal, never to redirected stdout.
 
+### Generating passwords
+`mpm pwgen` generates a random password from the operating system's secure random source.  By default it is 20 characters with at least one lowercase letter, uppercase letter, digit and symbol (`!@#$%^&*-_+=?`), and the same character never appears twice in a row (some sites reject that).
+
+```
+mpm pwgen [--length <n>] [--no-lower] [--no-upper] [--no-digits] [--no-symbols] [--symbols <chars>] [--exclude <chars>] [--allow-repeats] [--copy]
+mpm pwgen --repo <repo-name> --secret <secret-name> --field <field-name> [--copy] [options]
+```
+
+* With no other flags the password is printed to stdout.
+* `--copy` puts it on the clipboard instead of printing it, so it is never seen.
+* `--secret` with `--field` stores it straight into that field (printing nothing but a confirmation) and keeps the secret's other fields; the secret is created if it does not exist, subject to the usual required-field rules.  The value must satisfy the field's `pattern`, otherwise nothing is stored and the error suggests adjusting the options (e.g. `--no-symbols` or `--exclude`).
+* `--exclude` removes characters from every class, e.g. look-alikes: `--exclude 0Ol1I`.  `--symbols` replaces the default symbol set.
+
 ## TUI mode
 Running `mpm tui` runs mpm in a TUI mode.
 
@@ -130,6 +143,7 @@ TUI interface has following "screens":
 * Secret field selection: lists fields within selected secret
   - <ESC> to return to Secret selection
   - "C" to copy selected field value to clipboard
+  - "P" to generate a new password (default `pwgen` options) into the selected field, replacing its value; it is never displayed, and the message reads "Generated password for <field>"
   - "S" to show selected field value on screen (it is hidden again after a few seconds); <Enter> deliberately does not show or copy values, so drilling down never exposes a secret
   - "E" to edit secret in `$EDITOR` (`$VISUAL` is tried first; vim and nvim are started without swap, backup, undo or viminfo files so the decrypted text is not left behind (other editors are launched as configured, so disable their history files yourself); arguments may be quoted like in a shell, e.g. `EDITOR="code --wait"`; the secret is written as `field: value` lines to a private temp file that is removed afterward; values are validated on save; a backslash or newline inside a value appears as `\\` or `\n`)
   - "Q" or <Ctrl-C> to exit TUI

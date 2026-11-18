@@ -418,3 +418,96 @@ func TestFieldMoveReordersSecretOutput(t *testing.T) {
 	_ = e.mustFail("field", "move", "--repo", "cards", "--field", "nope")
 	_ = e.mustFail("field", "move", "--repo", "cards", "--field", "expiry", "--before", "nope")
 }
+
+func TestPwgenPrintsPasswordWithDefaults(t *testing.T) {
+	e := newTestEnv(t)
+	out := e.must("pwgen")
+	pw := strings.TrimSuffix(out, "\n")
+	if len(pw) != 20 || strings.Contains(pw, "\n") {
+		t.Fatalf("out=%q", out)
+	}
+	for i := 1; i < len(pw); i++ {
+		if pw[i] == pw[i-1] {
+			t.Fatalf("consecutive repeat in %q", pw)
+		}
+	}
+}
+
+func TestPwgenOptions(t *testing.T) {
+	e := newTestEnv(t)
+	pw := strings.TrimSpace(e.must("pwgen", "--length", "12", "--no-symbols", "--no-upper", "--exclude", "0123"))
+	if len(pw) != 12 || strings.Trim(pw, "abcdefghijklmnopqrstuvwxyz456789") != "" {
+		t.Fatalf("pw=%q", pw)
+	}
+	pw = strings.TrimSpace(e.must("pwgen", "--no-lower", "--no-upper", "--no-digits", "--symbols", "~", "--allow-repeats", "--length", "6"))
+	if pw != "~~~~~~" {
+		t.Fatalf("pw=%q", pw)
+	}
+	_ = e.mustFail("pwgen", "--length", "0")
+	_ = e.mustFail("pwgen", "--no-lower", "--no-upper", "--no-digits", "--no-symbols")
+}
+
+func TestPwgenCopyDoesNotPrint(t *testing.T) {
+	e := newTestEnv(t)
+	out := e.must("pwgen", "--copy")
+	if out != "Copied to clipboard.\n" || len(e.clip.val) != 20 || strings.Contains(out, e.clip.val) {
+		t.Fatalf("out=%q clip=%q", out, e.clip.val)
+	}
+}
+
+func TestPwgenStoresIntoSecretField(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "r")
+	e.must("field", "create", "--repo", "r", "--field", "user")
+	e.must("field", "create", "--repo", "r", "--field", "pass")
+	e.must("secret", "create", "--repo", "r", "--secret", "gh", "--value", "user:me")
+
+	out := e.must("pwgen", "--repo", "r", "--secret", "gh", "--field", "pass", "--length", "16")
+	stored := strings.TrimSpace(e.must("secret", "show", "--repo", "r", "--secret", "gh", "--field", "pass"))
+	if len(stored) != 16 || strings.Contains(out, stored) {
+		t.Fatalf("stored=%q out=%q", stored, out)
+	}
+	if got := e.must("secret", "show", "--repo", "r", "--secret", "gh", "--field", "user"); got != "me\n" {
+		t.Fatalf("other fields must be kept: %q", got)
+	}
+
+	// Combined with --copy the same value lands on the clipboard.
+	e.must("pwgen", "--repo", "r", "--secret", "gh", "--field", "pass", "--copy")
+	stored = strings.TrimSpace(e.must("secret", "show", "--repo", "r", "--secret", "gh", "--field", "pass"))
+	if e.clip.val != stored {
+		t.Fatalf("clip=%q stored=%q", e.clip.val, stored)
+	}
+}
+
+func TestPwgenCreatesMissingSecret(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "r")
+	e.must("field", "create", "--repo", "r", "--field", "pass")
+	e.must("pwgen", "--repo", "r", "--secret", "new", "--field", "pass")
+	if got := strings.TrimSpace(e.must("secret", "show", "--repo", "r", "--secret", "new", "--field", "pass")); len(got) != 20 {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPwgenStoreErrors(t *testing.T) {
+	e := newTestEnv(t)
+	e.must("repo", "create", "--repo", "r")
+	e.must("field", "create", "--repo", "r", "--field", "pin")
+	e.must("field", "set-attrib", "--repo", "r", "--field", "pin", "--attrib", "pattern", "--value", "[0-9]{4}")
+	e.must("field", "create", "--repo", "r", "--field", "user")
+	e.must("field", "set-attrib", "--repo", "r", "--field", "user", "--attrib", "required", "--value", "true")
+
+	_ = e.mustFail("pwgen", "--repo", "r", "--secret", "x")                    // --secret needs --field
+	_ = e.mustFail("pwgen", "--repo", "r", "--field", "pin")                   // --field needs --secret
+	_ = e.mustFail("pwgen", "--repo", "r", "--secret", "x", "--field", "nope") // unknown field
+	// Generated value must satisfy the field's pattern (default password never is 4 digits).
+	err := e.mustFail("pwgen", "--repo", "r", "--secret", "x", "--field", "pin")
+	if !strings.Contains(err.Error(), "pattern") {
+		t.Fatalf("got %v", err)
+	}
+	// A new secret that would miss a required field is refused and nothing is stored.
+	_ = e.mustFail("pwgen", "--repo", "r", "--secret", "x", "--field", "pin", "--length", "4", "--no-lower", "--no-upper", "--no-symbols")
+	if got := e.must("secret", "list", "--repo", "r"); got != "" {
+		t.Fatalf("secret list: %q", got)
+	}
+}

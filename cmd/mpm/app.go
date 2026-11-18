@@ -128,6 +128,6 @@ func newRootCmd(a *app) *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.SetVersionTemplate("mpm version {{.Version}}\n")
-	root.AddCommand(a.repoCmd(), a.fieldCmd(), a.secretCmd(), a.tuiCmd())
+	root.AddCommand(a.repoCmd(), a.fieldCmd(), a.secretCmd(), a.pwgenCmd(), a.tuiCmd())
 	return root
 }

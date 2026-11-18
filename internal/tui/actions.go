@@ -3,12 +3,14 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kjhaber/mpm/internal/pwgen"
 	"github.com/kjhaber/mpm/internal/vault"
 )
 
@@ -278,10 +280,36 @@ func (m *Model) fieldsKey(key string) tea.Cmd {
 			return nil
 		}
 		m.msg = fmt.Sprintf("Copied %s to clipboard", sel)
+	case "p":
+		m.generateInto(sel)
 	case "e":
 		return m.startEdit()
 	}
 	return nil
+}
+
+// generateInto replaces the selected field's value with a freshly generated
+// password (default options). The value is never displayed.
+func (m *Model) generateInto(field string) {
+	pw, err := pwgen.Generate(pwgen.Options{})
+	if err != nil {
+		m.msg = err.Error()
+		return
+	}
+	if m.mutate(func(r *vault.Repo) error {
+		if err := r.ValidateField(field, pw); err != nil {
+			return fmt.Errorf("generated password rejected: %w", err)
+		}
+		vals := maps.Clone(r.Secrets[m.secret])
+		if vals == nil {
+			vals = map[string]string{}
+		}
+		vals[field] = pw
+		return r.SetSecret(m.secret, vals)
+	}) {
+		m.revealed = false
+		m.msg = fmt.Sprintf("Generated password for %s", field)
+	}
 }
 
 func (m *Model) fieldNames() []string {
